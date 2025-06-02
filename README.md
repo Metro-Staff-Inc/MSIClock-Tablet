@@ -273,21 +273,24 @@ flutter build apk --release
 ### Tablet Setup
 
 1. Designed for Lenovo M11 Tablets with 1080p resolution
-2. Removal of unneeded preinstalled software
+2. Navigate to Github to install .APK
+   1. https://github.com/Metro-Staff-Inc/MSIClock-Tablet/releases
+   2. Add App to Main Screen
+3. Removal of unneeded preinstalled software
    1. B
    2. MusicFX
    3. MyScript Calculator 2
    4. Nebo
    5. Recorder
    6. WPS Office
-3. Settings
+4. Settings
    1. Display
       1. Dark Mode
       2. Screen Timeout = Never
    2. Sounds = Mute All
-4. General Settings
+5. General Settings
    1. Taskbar = Off
-5. Remove all Application Icons from Home Screens
+6. Remove all Application Icons from Home Screens
 
 ## License
 
