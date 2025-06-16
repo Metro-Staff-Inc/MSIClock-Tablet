@@ -14,7 +14,7 @@ class UpdateService {
   // GitHub API URL for releases
   // Replace with your actual repository owner and name
   static const String githubApiUrl =
-      'https://api.github.com/repos/metrostaffinc/MSIClock-Tablet/releases/latest';
+      'https://api.github.com/repos/metro-staff-inc/MSIClock-Tablet/releases/latest';
 
   static const String prefsLastCheckKey = 'last_update_check';
   static const Duration checkInterval = Duration(days: 1);
