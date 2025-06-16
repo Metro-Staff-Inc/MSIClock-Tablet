@@ -7,6 +7,9 @@ import '../services/settings_service.dart';
 import '../main.dart';
 import '../services/update_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
+import '../providers/punch_provider.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -32,6 +35,12 @@ class _AdminScreenState extends State<AdminScreen> {
       false; // Toggle for confirm admin password visibility
   String? _error;
 
+  // Camera settings
+  bool _isCameraEnabled = true;
+  String? _selectedImagePath;
+  File? _selectedImageFile;
+  final ImagePicker _imagePicker = ImagePicker();
+
   // For update functionality
   final UpdateService _updateService = UpdateService();
   String _appVersion = "";
@@ -47,6 +56,7 @@ class _AdminScreenState extends State<AdminScreen> {
     super.initState();
     _loadSettings();
     _loadAppVersion();
+    _loadCameraSettings();
   }
 
   /// Load the current app version
@@ -145,6 +155,50 @@ class _AdminScreenState extends State<AdminScreen> {
     super.dispose();
   }
 
+  /// Load camera settings from AppConfig
+  Future<void> _loadCameraSettings() async {
+    try {
+      _isCameraEnabled = await AppConfig.isCameraEnabled();
+      _selectedImagePath = await AppConfig.getSelectedImagePath();
+
+      if (_selectedImagePath != null) {
+        _selectedImageFile = File(_selectedImagePath!);
+        if (!await _selectedImageFile!.exists()) {
+          _selectedImageFile = null;
+          _selectedImagePath = null;
+        }
+      }
+
+      setState(() {});
+    } catch (e) {
+      print('Error loading camera settings: $e');
+      // Default to camera enabled if there's an error
+      setState(() {
+        _isCameraEnabled = true;
+        _selectedImagePath = null;
+        _selectedImageFile = null;
+      });
+    }
+  }
+
+  /// Pick an image from gallery
+  Future<void> _pickImage() async {
+    try {
+      final XFile? pickedFile = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImagePath = pickedFile.path;
+          _selectedImageFile = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      setState(() => _error = 'Failed to pick image: $e');
+    }
+  }
+
   Future<void> _loadSettings() async {
     try {
       setState(() => _isLoading = true);
@@ -187,6 +241,12 @@ class _AdminScreenState extends State<AdminScreen> {
       // Update endpoint
       await _settings.updateSoapEndpoint(_endpointController.text);
 
+      // Update camera settings
+      await AppConfig.updateCameraSettings(
+        isEnabled: _isCameraEnabled,
+        selectedImagePath: _selectedImagePath,
+      );
+
       // Update admin password if provided
       if (_newAdminPasswordController.text.isNotEmpty) {
         // Validate that passwords match
@@ -210,6 +270,15 @@ class _AdminScreenState extends State<AdminScreen> {
           _newAdminPasswordController.clear();
           _confirmAdminPasswordController.clear();
         });
+      }
+
+      // Update the PunchProvider with new camera settings
+      if (mounted) {
+        final provider = Provider.of<PunchProvider>(context, listen: false);
+        await provider.updateCameraSettings(
+          isEnabled: _isCameraEnabled,
+          selectedImagePath: _selectedImagePath,
+        );
       }
 
       if (mounted) {
@@ -426,6 +495,126 @@ class _AdminScreenState extends State<AdminScreen> {
                           return null;
                         },
                       ),
+                      const SizedBox(height: 32),
+
+                      // Camera Settings Section
+                      Text(
+                        'Camera Settings',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.defaultText,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Camera Enable/Disable Toggle
+                      Row(
+                        children: [
+                          Text(
+                            'Enable Camera',
+                            style: TextStyle(
+                              color: AppTheme.defaultText,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const Spacer(),
+                          Switch(
+                            value: _isCameraEnabled,
+                            onChanged: (value) {
+                              setState(() {
+                                _isCameraEnabled = value;
+                              });
+                            },
+                            activeColor: AppTheme.mainGreen,
+                          ),
+                        ],
+                      ),
+
+                      // Image selection (only visible when camera is disabled)
+                      if (!_isCameraEnabled) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          'Select Image to Display',
+                          style: TextStyle(
+                            color: AppTheme.defaultText,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.darkerFrames.withOpacity(0.5),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: AppTheme.frontFrames,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Text(
+                                  _selectedImagePath != null
+                                      ? _selectedImagePath!.split('/').last
+                                      : 'No image selected',
+                                  style: TextStyle(
+                                    color: AppTheme.defaultText,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.photo_library),
+                              label: const Text('Browse'),
+                              onPressed: _pickImage,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.mainGreen,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        // Image preview
+                        if (_selectedImageFile != null) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            'Preview',
+                            style: TextStyle(
+                              color: AppTheme.defaultText,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            height: 200,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: AppTheme.darkerFrames,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: AppTheme.frontFrames,
+                                width: 1,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                _selectedImageFile!,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+
                       const SizedBox(height: 32),
 
                       // Version and Updates Section

@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/punch.dart';
 import '../models/soap_config.dart';
 import '../services/punch_service.dart';
+import '../config/app_config.dart';
 
 class PunchProvider extends ChangeNotifier {
   final PunchService _punchService;
@@ -9,6 +11,9 @@ class PunchProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   Punch? _lastPunch;
+  bool _isCameraEnabled = true;
+  String? _selectedImagePath;
+  File? _selectedImageFile;
 
   PunchProvider(SoapConfig config) : _punchService = PunchService(config);
 
@@ -20,6 +25,9 @@ class PunchProvider extends ChangeNotifier {
   String? get connectionError => _punchService.connectionError;
   bool get isCameraInitialized => _punchService.isCameraInitialized;
   get cameraController => _punchService.cameraController;
+  bool get isCameraEnabled => _isCameraEnabled;
+  String? get selectedImagePath => _selectedImagePath;
+  File? get selectedImageFile => _selectedImageFile;
 
   void toggleLanguage() {
     _currentLanguage = _currentLanguage == 'en' ? 'es' : 'en';
@@ -46,10 +54,78 @@ class PunchProvider extends ChangeNotifier {
     }
   }
 
+  /// Load camera settings from AppConfig
+  Future<void> loadCameraSettings() async {
+    try {
+      _isCameraEnabled = await AppConfig.isCameraEnabled();
+      _selectedImagePath = await AppConfig.getSelectedImagePath();
+
+      // Load the selected image file if path is available
+      if (_selectedImagePath != null) {
+        _selectedImageFile = File(_selectedImagePath!);
+        if (!await _selectedImageFile!.exists()) {
+          _selectedImageFile = null;
+        }
+      } else {
+        _selectedImageFile = null;
+      }
+
+      notifyListeners();
+    } catch (e) {
+      print('Error loading camera settings: $e');
+      // Default to camera enabled if there's an error
+      _isCameraEnabled = true;
+      _selectedImagePath = null;
+      _selectedImageFile = null;
+    }
+  }
+
+  /// Update camera settings
+  Future<void> updateCameraSettings({
+    required bool isEnabled,
+    String? selectedImagePath,
+  }) async {
+    try {
+      await AppConfig.updateCameraSettings(
+        isEnabled: isEnabled,
+        selectedImagePath: selectedImagePath,
+      );
+
+      _isCameraEnabled = isEnabled;
+
+      if (selectedImagePath != null) {
+        _selectedImagePath = selectedImagePath;
+        _selectedImageFile = File(selectedImagePath);
+        if (!await _selectedImageFile!.exists()) {
+          _selectedImageFile = null;
+        }
+      }
+
+      notifyListeners();
+    } catch (e) {
+      print('Error updating camera settings: $e');
+      _error =
+          _currentLanguage == 'en'
+              ? 'Failed to update camera settings'
+              : 'Error al actualizar configuración de cámara';
+      notifyListeners();
+    }
+  }
+
   Future<void> initializeCamera({bool forceReinit = false}) async {
     try {
       _error = null;
-      await _punchService.initializeCamera(forceReinit: forceReinit);
+
+      // Load camera settings first
+      await loadCameraSettings();
+
+      // Only initialize camera if it's enabled
+      if (_isCameraEnabled) {
+        await _punchService.initializeCamera(forceReinit: forceReinit);
+      } else {
+        print('Camera initialization skipped - camera is disabled in settings');
+      }
+
       notifyListeners();
     } catch (e) {
       // Use a concise error message to prevent layout issues
@@ -98,7 +174,10 @@ class PunchProvider extends ChangeNotifier {
       print(
         'TIMING: Calling PunchService.recordPunch at ${DateTime.now().toIso8601String()}',
       );
-      _lastPunch = await _punchService.recordPunch(employeeId);
+      _lastPunch = await _punchService.recordPunch(
+        employeeId,
+        isCameraEnabled: _isCameraEnabled,
+      );
 
       // Debug: Log when response is received from PunchService
       final providerEndTime = DateTime.now();

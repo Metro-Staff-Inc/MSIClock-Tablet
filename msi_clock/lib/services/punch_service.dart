@@ -70,7 +70,10 @@ class PunchService {
     _soapService.dispose(); // Close the HTTP client
   }
 
-  Future<Punch> recordPunch(String employeeId) async {
+  Future<Punch> recordPunch(
+    String employeeId, {
+    bool isCameraEnabled = true,
+  }) async {
     // Debug: Log start time
     final punchServiceStartTime = DateTime.now();
     print(
@@ -88,8 +91,10 @@ class PunchService {
         'TIMING: Camera capture started at ${cameraStartTime.toIso8601String()}',
       );
 
-      // Capture photo if camera is available
-      if (_cameraController != null && _cameraController!.value.isInitialized) {
+      // Capture photo if camera is available and enabled
+      if (isCameraEnabled &&
+          _cameraController != null &&
+          _cameraController!.value.isInitialized) {
         final image = await _cameraController!.takePicture();
         imageData = await image.readAsBytes();
 
@@ -100,6 +105,8 @@ class PunchService {
           'TIMING: Camera capture completed at ${cameraEndTime.toIso8601String()}',
         );
         print('TIMING: Camera capture took ${cameraDuration.inMilliseconds}ms');
+      } else if (!isCameraEnabled) {
+        print('TIMING: Camera disabled in settings, skipping photo capture');
       } else {
         print('TIMING: Camera not initialized, skipping photo capture');
       }

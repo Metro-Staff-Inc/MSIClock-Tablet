@@ -46,4 +46,52 @@ class AppConfig {
   static void clearAdminPasswordCache() {
     _cachedAdminPassword = null;
   }
+
+  // Camera settings cache to avoid repeated async lookups
+  static bool? _cachedCameraEnabled;
+  static String? _cachedSelectedImagePath;
+
+  /// Check if camera is enabled (cached or from settings)
+  static Future<bool> isCameraEnabled() async {
+    if (_cachedCameraEnabled != null) {
+      return _cachedCameraEnabled!;
+    }
+
+    _cachedCameraEnabled = await _settings.isCameraEnabled();
+    return _cachedCameraEnabled!;
+  }
+
+  /// Get the selected image path for camera replacement (cached or from settings)
+  static Future<String?> getSelectedImagePath() async {
+    if (_cachedSelectedImagePath != null) {
+      return _cachedSelectedImagePath;
+    }
+
+    _cachedSelectedImagePath = await _settings.getSelectedImagePath();
+    return _cachedSelectedImagePath;
+  }
+
+  /// Update camera settings
+  static Future<void> updateCameraSettings({
+    required bool isEnabled,
+    String? selectedImagePath,
+  }) async {
+    // Update cache
+    _cachedCameraEnabled = isEnabled;
+    if (selectedImagePath != null) {
+      _cachedSelectedImagePath = selectedImagePath;
+    }
+
+    // Update settings
+    await _settings.updateCameraSettings(
+      isEnabled: isEnabled,
+      selectedImagePath: selectedImagePath,
+    );
+  }
+
+  /// Clear camera settings cache (call after settings changes)
+  static void clearCameraSettingsCache() {
+    _cachedCameraEnabled = null;
+    _cachedSelectedImagePath = null;
+  }
 }

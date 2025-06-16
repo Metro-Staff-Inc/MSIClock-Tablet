@@ -949,39 +949,11 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                                   ),
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
-                                    child:
-                                        provider.isCameraInitialized
-                                            ? ClipRect(
-                                              child: OverflowBox(
-                                                alignment: Alignment.center,
-                                                child: Transform.rotate(
-                                                  angle:
-                                                      -1.5708, // 90 degrees counter-clockwise
-                                                  child: FittedBox(
-                                                    fit: BoxFit.cover,
-                                                    child: SizedBox(
-                                                      width:
-                                                          containerHeight, // Use container height as width after rotation
-                                                      height:
-                                                          containerWidth, // Use container width as height after rotation (4:3 ratio)
-                                                      child:
-                                                          provider
-                                                              .cameraController!
-                                                              .buildPreview(),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                            : Center(
-                                              child: Text(
-                                                'CAMERA PREVIEW',
-                                                style: TextStyle(
-                                                  color: AppTheme.defaultText,
-                                                  fontSize: 18,
-                                                ),
-                                              ),
-                                            ),
+                                    child: _buildCameraPreview(
+                                      provider,
+                                      containerHeight,
+                                      containerWidth,
+                                    ),
                                   ),
                                 ),
                               );
@@ -1065,6 +1037,58 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  // Build camera preview or replacement image based on camera settings
+  Widget _buildCameraPreview(
+    PunchProvider provider,
+    double containerHeight,
+    double containerWidth,
+  ) {
+    // If camera is enabled and initialized, show camera preview
+    if (provider.isCameraEnabled && provider.isCameraInitialized) {
+      return ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.center,
+          child: Transform.rotate(
+            angle: -1.5708, // 90 degrees counter-clockwise
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width:
+                    containerHeight, // Use container height as width after rotation
+                height:
+                    containerWidth, // Use container width as height after rotation (4:3 ratio)
+                child: provider.cameraController!.buildPreview(),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    // If camera is disabled and there's a selected image, show it
+    else if (!provider.isCameraEnabled && provider.selectedImageFile != null) {
+      return Center(
+        child: Image.file(
+          provider.selectedImageFile!,
+          fit:
+              BoxFit
+                  .contain, // Maintain aspect ratio while fitting within the container
+          width: double.infinity,
+          height: double.infinity,
+        ),
+      );
+    }
+    // Otherwise show MSI logo as default placeholder
+    else {
+      return Center(
+        child: Image.asset(
+          'assets/images/msi_logo.png',
+          height: containerHeight * 0.5,
+          fit: BoxFit.contain,
+        ),
+      );
+    }
   }
 
   // Helper methods for date and time formatting

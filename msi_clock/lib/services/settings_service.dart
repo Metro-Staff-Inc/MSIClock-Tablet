@@ -14,6 +14,7 @@ class SettingsService {
       'password': 'summer2014',
       'clientId': '309',
     },
+    'cameraSettings': {'isEnabled': true, 'selectedImagePath': null},
   };
 
   // In-memory settings for testing or when file access fails
@@ -160,5 +161,60 @@ class SettingsService {
     return settings.containsKey('adminPassword')
         ? settings['adminPassword'] as String
         : '1234'; // Default password
+  }
+
+  /// Get the camera settings from settings or return the default if not found
+  Future<Map<String, dynamic>> getCameraSettings() async {
+    final settings = await loadSettings();
+
+    // Return the camera settings from settings or the default
+    if (settings.containsKey('cameraSettings') &&
+        settings['cameraSettings'] is Map<String, dynamic>) {
+      return settings['cameraSettings'] as Map<String, dynamic>;
+    } else {
+      // Return default camera settings
+      return {'isEnabled': true, 'selectedImagePath': null};
+    }
+  }
+
+  /// Check if camera is enabled
+  Future<bool> isCameraEnabled() async {
+    final cameraSettings = await getCameraSettings();
+    return cameraSettings['isEnabled'] as bool? ?? true;
+  }
+
+  /// Get the selected image path for camera replacement
+  Future<String?> getSelectedImagePath() async {
+    final cameraSettings = await getCameraSettings();
+    return cameraSettings['selectedImagePath'] as String?;
+  }
+
+  /// Update camera settings
+  Future<void> updateCameraSettings({
+    required bool isEnabled,
+    String? selectedImagePath,
+  }) async {
+    final settings = await loadSettings();
+
+    // Get current camera settings or create new ones
+    final cameraSettings =
+        settings.containsKey('cameraSettings') &&
+                settings['cameraSettings'] is Map<String, dynamic>
+            ? Map<String, dynamic>.from(
+              settings['cameraSettings'] as Map<String, dynamic>,
+            )
+            : <String, dynamic>{'isEnabled': true, 'selectedImagePath': null};
+
+    // Update the settings
+    cameraSettings['isEnabled'] = isEnabled;
+
+    // Only update selectedImagePath if it's provided
+    if (selectedImagePath != null) {
+      cameraSettings['selectedImagePath'] = selectedImagePath;
+    }
+
+    // Save the updated camera settings
+    settings['cameraSettings'] = cameraSettings;
+    await saveSettings(settings);
   }
 }
