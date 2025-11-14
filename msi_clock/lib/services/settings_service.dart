@@ -15,6 +15,11 @@ class SettingsService {
       'clientId': '309',
     },
     'cameraSettings': {'isEnabled': true, 'selectedImagePath': null},
+    'battery': {
+      'apiEndpoint': 'https://battery-monitor-api.onrender.com',
+      'deviceName': 'MSI-Tablet',
+      'location': 'Unknown',
+    },
   };
 
   // In-memory settings for testing or when file access fails
@@ -215,6 +220,84 @@ class SettingsService {
 
     // Save the updated camera settings
     settings['cameraSettings'] = cameraSettings;
+    await saveSettings(settings);
+  }
+
+  /// Get battery API endpoint
+  Future<String> getBatteryApiEndpoint() async {
+    final settings = await loadSettings();
+
+    if (settings.containsKey('battery') &&
+        settings['battery'] is Map<String, dynamic> &&
+        settings['battery']['apiEndpoint'] is String) {
+      return settings['battery']['apiEndpoint'] as String;
+    }
+
+    return 'https://battery-monitor-api.onrender.com';
+  }
+
+  /// Get device name
+  Future<String> getDeviceName() async {
+    final settings = await loadSettings();
+
+    if (settings.containsKey('battery') &&
+        settings['battery'] is Map<String, dynamic> &&
+        settings['battery']['deviceName'] is String) {
+      return settings['battery']['deviceName'] as String;
+    }
+
+    return 'MSI-Tablet';
+  }
+
+  /// Get device location
+  Future<String> getDeviceLocation() async {
+    final settings = await loadSettings();
+
+    if (settings.containsKey('battery') &&
+        settings['battery'] is Map<String, dynamic> &&
+        settings['battery']['location'] is String) {
+      return settings['battery']['location'] as String;
+    }
+
+    return 'Unknown';
+  }
+
+  /// Update battery settings
+  Future<void> updateBatterySettings({
+    String? apiEndpoint,
+    String? deviceName,
+    String? location,
+  }) async {
+    final settings = await loadSettings();
+
+    // Get current battery settings or create new ones
+    final batterySettings =
+        settings.containsKey('battery') &&
+                settings['battery'] is Map<String, dynamic>
+            ? Map<String, dynamic>.from(
+              settings['battery'] as Map<String, dynamic>,
+            )
+            : <String, dynamic>{
+              'apiEndpoint': 'https://battery-monitor-api.onrender.com',
+              'deviceName': 'MSI-Tablet',
+              'location': 'Unknown',
+            };
+
+    // Update settings if provided
+    if (apiEndpoint != null) {
+      batterySettings['apiEndpoint'] = apiEndpoint;
+    }
+
+    if (deviceName != null) {
+      batterySettings['deviceName'] = deviceName;
+    }
+
+    if (location != null) {
+      batterySettings['location'] = location;
+    }
+
+    // Save updated settings
+    settings['battery'] = batterySettings;
     await saveSettings(settings);
   }
 }

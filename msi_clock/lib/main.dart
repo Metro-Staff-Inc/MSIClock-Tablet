@@ -1,17 +1,17 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'config/app_config.dart';
 import 'config/app_theme.dart';
 import 'providers/punch_provider.dart';
 import 'screens/admin_screen.dart';
 import 'widgets/admin_password_dialog.dart';
 import 'services/update_service.dart';
+import 'services/battery_monitor_service.dart';
+import 'services/power_saving_manager.dart';
 
 // Method channel for native communication
 const platform = MethodChannel('com.example.msi_clock/kiosk');
@@ -40,7 +40,10 @@ void main() async {
   // Initialize automatic update scheduler
   final updateService = UpdateService();
   await updateService.scheduleUpdateCheck();
-  print('Automatic update scheduler initialized - will check at 1:00 AM daily');
+
+  // Initialize battery monitoring service
+  final batteryMonitorService = BatteryMonitorService();
+  await batteryMonitorService.initialize();
 
   // Initialize SOAP configuration
   final soapConfig = await AppConfig.getSoapConfig();
@@ -103,7 +106,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
         // Force a new connection attempt each time
         isConnected = await provider.checkConnectivity(forceReconnect: true);
         if (isConnected) {
-          print('SOAP connection established on attempt ${i + 1}');
           break;
         } else {
           setState(() {
@@ -114,7 +116,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
           await Future.delayed(const Duration(seconds: 1));
         }
       } catch (e) {
-        print('Error checking connectivity: $e');
         if (i < _maxRetries - 1) {
           await Future.delayed(const Duration(seconds: 1));
         }
@@ -133,7 +134,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
         await provider.initializeCamera(forceReinit: true);
         if (provider.isCameraInitialized) {
           isCameraInitialized = true;
-          print('Camera initialized on attempt ${i + 1}');
           break;
         } else {
           setState(() {
@@ -144,7 +144,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
           await Future.delayed(const Duration(seconds: 1));
         }
       } catch (e) {
-        print('Error initializing camera: $e');
         if (i < _maxRetries - 1) {
           await Future.delayed(const Duration(seconds: 1));
         }
@@ -218,10 +217,44 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   bool _isKeypadDisabled = false;
   Timer? _statusMessageTimer;
 
+  // Power saving manager
+  final PowerSavingManager _powerSavingManager = PowerSavingManager();
+  bool _isSleepModeActive = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Register for sleep mode callbacks
+    _powerSavingManager.registerCallbacks(
+      onSleepModeActivated: () {
+        if (mounted) {
+          setState(() {
+            _isSleepModeActive = true;
+          });
+          print(
+            'SLEEP DEBUG: Sleep mode activated in UI at ${DateTime.now().toIso8601String()}',
+          );
+        }
+      },
+      onSleepModeDeactivated: () {
+        if (mounted) {
+          setState(() {
+            _isSleepModeActive = false;
+          });
+          print(
+            'SLEEP DEBUG: Sleep mode deactivated in UI at ${DateTime.now().toIso8601String()}',
+          );
+
+          // Immediately check SOAP connectivity when coming out of sleep mode
+          print(
+            'SLEEP DEBUG: Triggering SOAP connectivity check after sleep mode deactivation',
+          );
+          _checkSoapConnectivityAfterSleep();
+        }
+      },
+    );
+
     // Initialize camera and check connectivity when screen loads
     Future.microtask(() async {
       final provider = context.read<PunchProvider>();
@@ -252,13 +285,52 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     }
   }
 
+  // Register user interaction to reset sleep mode timer
+  Future<void> _registerUserInteraction() async {
+    final wasSleepModeActive = _powerSavingManager.isSleepModeActive;
+    print(
+      'USER DEBUG: User interaction detected, sleep mode was: ${wasSleepModeActive ? "ACTIVE" : "INACTIVE"}',
+    );
+
+    await _powerSavingManager.registerUserInteraction();
+
+    // If we were in sleep mode and now we're not, check connectivity immediately
+    if (wasSleepModeActive) {
+      print(
+        'USER DEBUG: Device was in sleep mode, checking connectivity immediately',
+      );
+      await _checkSoapConnectivityAfterSleep();
+    }
+  }
+
+  // Prepare SOAP connection after coming out of sleep mode
+  // This ensures the connection is ready for an immediate punch
+  Future<void> _checkSoapConnectivityAfterSleep() async {
+    print(
+      'SOAP DEBUG: Preparing SOAP connection for punch after sleep mode at ${DateTime.now().toIso8601String()}',
+    );
+    try {
+      // Get the SOAP service directly through the punch provider
+      final provider = context.read<PunchProvider>();
+
+      // Force a new connection and initialize everything needed for a punch
+      print('SOAP DEBUG: Forcing connection reset to prepare for punch');
+      await provider.prepareForPunch();
+
+      print('SOAP DEBUG: SOAP connection prepared for punch operation');
+    } catch (e) {
+      print('SOAP DEBUG: Error preparing SOAP connection: $e');
+    }
+  }
+
   Future<void> _handlePunch() async {
+    // Register user interaction
+    _registerUserInteraction();
     final employeeId = _idController.text;
     if (employeeId.isEmpty) return;
 
     // Debug: Log start time
     final startTime = DateTime.now();
-    print('TIMING: Punch initiated at ${startTime.toIso8601String()}');
 
     // Disable keypad
     setState(() {
@@ -270,31 +342,12 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
 
     // Record the punch and await the SOAP response
     _idController.clear();
-    print(
-      'TIMING: Calling recordPunch() at ${DateTime.now().toIso8601String()}',
-    );
     await context.read<PunchProvider>().recordPunch(employeeId);
-
-    // Debug: Log SOAP response received time and calculate duration
-    final responseTime = DateTime.now();
-    final soapDuration = responseTime.difference(startTime);
-    print(
-      'TIMING: SOAP response received at ${responseTime.toIso8601String()}',
-    );
-    print('TIMING: SOAP request took ${soapDuration.inMilliseconds}ms');
 
     // Now that the SOAP response has been received, set a timer to display the status message
     // for 2 seconds before re-enabling the keypad and clearing the message
     _statusMessageTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) {
-        // Debug: Log when the status message is cleared
-        print(
-          'TIMING: Status message cleared at ${DateTime.now().toIso8601String()}',
-        );
-        print(
-          'TIMING: Total display time: ${DateTime.now().difference(responseTime).inMilliseconds}ms',
-        );
-
         setState(() {
           _isKeypadDisabled = false;
           // Clear the last punch to hide the status message
@@ -305,6 +358,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openAdminScreen() async {
+    // Register user interaction
+    await _registerUserInteraction();
     final isAuthenticated = await showAdminPasswordDialog(context);
     if (isAuthenticated && mounted) {
       await Navigator.of(
@@ -345,9 +400,12 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
           onTap:
               _isKeypadDisabled
                   ? null // Disable the button when keypad is disabled
-                  : () {
+                  : () async {
                     // Add haptic feedback
                     HapticFeedback.lightImpact();
+
+                    // Register user interaction
+                    await _registerUserInteraction();
 
                     // Allow up to 9 digits for ID
                     if (_idController.text.length < 9) {
@@ -410,9 +468,12 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                   onTap:
                       _isKeypadDisabled
                           ? null // Disable the button when keypad is disabled
-                          : () {
+                          : () async {
                             // Add haptic feedback
                             HapticFeedback.mediumImpact();
+
+                            // Register user interaction
+                            await _registerUserInteraction();
 
                             // Remove last character
                             if (_idController.text.isNotEmpty) {
@@ -470,9 +531,12 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                   onTap:
                       _isKeypadDisabled
                           ? null // Disable the button when keypad is disabled
-                          : () {
+                          : () async {
                             // Add haptic feedback
                             HapticFeedback.mediumImpact();
+
+                            // Register user interaction
+                            await _registerUserInteraction();
 
                             // Clear the text field
                             setState(() {
@@ -551,6 +615,9 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                                 // Add haptic feedback
                                 HapticFeedback.heavyImpact();
 
+                                // Register user interaction
+                                await _registerUserInteraction();
+
                                 // Submit the ID
                                 await _handlePunch();
                               }
@@ -588,6 +655,17 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Register user interaction on tap
+    return GestureDetector(
+      onTap: () async {
+        await _registerUserInteraction();
+      },
+      behavior: HitTestBehavior.translucent,
+      child: _buildMainContent(context),
+    );
+  }
+
+  Widget _buildMainContent(BuildContext context) {
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(color: AppTheme.windowBackground),
@@ -596,52 +674,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
             builder: (context, provider, child) {
               return Row(
                 children: [
-                  // Column 1: Small column with online indicator
-                  SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.05,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        // Online indicator at the bottom
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16.0),
-                          child: Column(
-                            children: [
-                              Icon(
-                                provider.isOnline ? Icons.wifi : Icons.wifi_off,
-                                color:
-                                    provider.isOnline
-                                        ? AppTheme.successColor
-                                        : AppTheme.errorColor,
-                                size: 24,
-                              ),
-                              const SizedBox(height: 4),
-                              RotatedBox(
-                                quarterTurns: 3, // Rotate text to vertical
-                                child: Text(
-                                  provider.isOnline
-                                      ? (provider.currentLanguage == 'en'
-                                          ? 'ONLINE'
-                                          : 'EN LÍNEA')
-                                      : (provider.currentLanguage == 'en'
-                                          ? 'OFFLINE'
-                                          : 'SIN CONEXIÓN'),
-                                  style: TextStyle(
-                                    color:
-                                        provider.isOnline
-                                            ? AppTheme.successColor
-                                            : AppTheme.errorColor,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  // Small spacer column (replacing the online indicator)
+                  SizedBox(width: MediaQuery.of(context).size.width * 0.05),
 
                   // Column 2: Employee ID input and keypad
                   SizedBox(
@@ -1045,8 +1079,43 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     double containerHeight,
     double containerWidth,
   ) {
+    // If in sleep mode, show sleep mode message
+    if (_isSleepModeActive) {
+      return Container(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.nights_stay,
+                color: Colors.white.withOpacity(0.5),
+                size: 80,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'SLEEP MODE',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Tap anywhere to wake',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.5),
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     // If camera is enabled and initialized, show camera preview
-    if (provider.isCameraEnabled && provider.isCameraInitialized) {
+    else if (provider.isCameraEnabled && provider.isCameraInitialized) {
       return ClipRect(
         child: OverflowBox(
           alignment: Alignment.center,

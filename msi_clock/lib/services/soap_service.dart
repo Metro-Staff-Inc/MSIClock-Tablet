@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 import '../models/soap_config.dart';
+import 'power_saving_manager.dart';
 
 class SoapService {
   final SoapConfig config;
@@ -37,8 +38,11 @@ class SoapService {
   // Heartbeat timer
   Timer? _heartbeatTimer;
 
-  // Heartbeat interval - 30 seconds
-  final Duration _heartbeatInterval = const Duration(seconds: 30);
+  // Power saving manager
+  final PowerSavingManager _powerSavingManager = PowerSavingManager();
+
+  // Subscription to sleep mode state changes
+  StreamSubscription? _sleepModeSubscription;
 
   SoapService(this.config) {
     // Initialize the HTTP client
@@ -49,6 +53,34 @@ class SoapService {
       final isConnected = await checkConnectivity();
       if (isConnected) {
         _startHeartbeat();
+      }
+    });
+
+    // Listen to sleep mode state changes
+    _sleepModeSubscription = _powerSavingManager.sleepModeStateStream.listen((
+      isSleepModeActive,
+    ) {
+      print(
+        'SOAP DEBUG: Sleep mode state changed to: ${isSleepModeActive ? "ACTIVE" : "INACTIVE"} at ${DateTime.now().toIso8601String()}',
+      );
+
+      // If sleep mode is deactivated (device waking up), immediately check connectivity
+      if (!isSleepModeActive) {
+        print(
+          'SOAP DEBUG: Device waking up from sleep mode, immediately checking connectivity',
+        );
+        // Force a reconnection to ensure we have a fresh connection
+        checkConnectivity(forceReconnect: true).then((isConnected) {
+          print(
+            'SOAP DEBUG: Post-sleep connectivity check result: ${isConnected ? "CONNECTED" : "DISCONNECTED"}',
+          );
+
+          if (isConnected) {
+            // Send an immediate heartbeat to ensure the connection is fully established
+            print('SOAP DEBUG: Sending immediate heartbeat after sleep mode');
+            _sendHeartbeatRosterHello();
+          }
+        });
       }
     });
   }
@@ -76,7 +108,17 @@ class SoapService {
   // Start the heartbeat timer to keep the connection alive
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+
+    // Get the heartbeat interval from the power saving manager
+    final heartbeatInterval = Duration(
+      seconds: _powerSavingManager.heartbeatIntervalSeconds,
+    );
+
+    print(
+      'SOAP DEBUG: Starting heartbeat timer at ${DateTime.now().toIso8601String()}',
+    );
+
+    _heartbeatTimer = Timer.periodic(heartbeatInterval, (_) {
       // Alternate between the two heartbeat approaches to compare performance
       if (DateTime.now().second % 2 == 0) {
         _sendHeartbeatRosterHello();
@@ -84,6 +126,14 @@ class SoapService {
         _sendHeartbeatHead();
       }
     });
+
+    // Send an immediate heartbeat to establish connection right away
+    print('SOAP DEBUG: Sending immediate heartbeat to establish connection');
+    _sendHeartbeatRosterHello();
+
+    print(
+      'Heartbeat started with interval: ${heartbeatInterval.inSeconds} seconds',
+    );
   }
 
   // Send a lightweight request to the Roster/Hello endpoint (C# approach)
@@ -186,6 +236,7 @@ class SoapService {
   // Dispose method to clean up resources
   void dispose() {
     _heartbeatTimer?.cancel();
+    _sleepModeSubscription?.cancel();
     if (_isClientInitialized) {
       _httpClient.close();
       _isClientInitialized = false;
@@ -196,11 +247,19 @@ class SoapService {
   /// Returns true if the server is reachable, false otherwise
   /// If forceReconnect is true, it will force a new connection attempt
   Future<bool> checkConnectivity({bool forceReconnect = false}) async {
+    final startTime = DateTime.now();
+    print(
+      'SOAP DEBUG: Starting connectivity check at ${startTime.toIso8601String()}',
+    );
     print('SOAP DEBUG: Using persistent connection for connectivity check');
     print('SOAP DEBUG: Attempting to connect to endpoint: $endpoint');
+    print('SOAP DEBUG: ForceReconnect: $forceReconnect');
 
     // Reset the HTTP client if forceReconnect is true
     if (forceReconnect) {
+      print(
+        'SOAP DEBUG: Forcing HTTP client reset at ${DateTime.now().toIso8601String()}',
+      );
       _initializeHttpClient();
     }
 
@@ -306,8 +365,21 @@ class SoapService {
 
       // If we're online and the heartbeat timer isn't running, start it
       if (_isOnline && _heartbeatTimer == null) {
+        print(
+          'SOAP DEBUG: Starting heartbeat after successful connectivity check',
+        );
         _startHeartbeat();
       }
+
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+        'SOAP DEBUG: Connectivity check completed at ${endTime.toIso8601String()}',
+      );
+      print('SOAP DEBUG: Connectivity check took ${duration.inMilliseconds}ms');
+      print(
+        'SOAP DEBUG: Connectivity result: ${_isOnline ? "ONLINE" : "OFFLINE"}',
+      );
 
       return _isOnline;
     } catch (e) {
@@ -453,6 +525,10 @@ class SoapService {
           print(
             'SOAP DEBUG: Sending request at ${DateTime.now().toIso8601String()}',
           );
+          print(
+            'SOAP DEBUG: Current online status before request: ${_isOnline ? "ONLINE" : "OFFLINE"}',
+          );
+
           final response = await _httpClient
               .post(
                 Uri.parse('$endpoint/Services/MSIWebTraxCheckInSummary.asmx'),
@@ -467,6 +543,10 @@ class SoapService {
                 body: envelope,
               )
               .timeout(effectiveTimeout);
+
+          print(
+            'SOAP DEBUG: Response received, status code: ${response.statusCode}',
+          );
 
           // Debug: Log HTTP response received time and calculate duration
           final httpResponseTime = DateTime.now();
@@ -576,12 +656,22 @@ class SoapService {
 
             return result;
           } else {
+            print(
+              'SOAP DEBUG: Setting _isOnline to false due to HTTP error ${response.statusCode}',
+            );
+            print(
+              'SOAP DEBUG: Previous online status was: ${_isOnline ? "ONLINE" : "OFFLINE"}',
+            );
             _isOnline = false;
             _connectionError = 'HTTP ${response.statusCode}: ${response.body}';
             print('SOAP DEBUG: Error response body: ${response.body}');
             throw Exception('HTTP error: ${response.statusCode}');
           }
         } catch (e) {
+          print('SOAP DEBUG: Setting _isOnline to false due to exception');
+          print(
+            'SOAP DEBUG: Previous online status was: ${_isOnline ? "ONLINE" : "OFFLINE"}',
+          );
           _isOnline = false;
           _connectionError = e.toString();
           print('SOAP ERROR: $e');
@@ -818,15 +908,20 @@ class SoapService {
   }
 
   Map<String, dynamic> _parsePunchResponse(String xmlResponse) {
+    print('SOAP DEBUG: Parsing punch response');
     try {
       // Pre-check for common error patterns to fail fast
       if (xmlResponse.isEmpty ||
           !xmlResponse.contains('RecordSwipeReturnInfo')) {
         print('Error: Invalid or empty XML response');
+        print('SOAP DEBUG: Returning offline response due to invalid XML');
         return _offlineResponse();
       }
 
       // Parse the XML document
+      print(
+        'SOAP DEBUG: XML response contains RecordSwipeReturnInfo, parsing document',
+      );
       final document = XmlDocument.parse(xmlResponse);
 
       // Create a map to store all relevant elements - more efficient than multiple searches
@@ -864,6 +959,9 @@ class SoapService {
         extractedValues['PunchException'] ?? '0',
       );
 
+      print(
+        'SOAP DEBUG: Successfully parsed response, returning with offline=false',
+      );
       return {
         'success': punchSuccess,
         'offline': false,
@@ -875,6 +973,9 @@ class SoapService {
       };
     } catch (e) {
       print('Error parsing SOAP response: $e');
+      print(
+        'SOAP DEBUG: Exception while parsing response, returning offline response',
+      );
       return _offlineResponse();
     }
   }
@@ -889,6 +990,9 @@ class SoapService {
   }
 
   Map<String, dynamic> _offlineResponse() {
+    print(
+      'SOAP DEBUG: Creating offline response, current online status: ${_isOnline ? "ONLINE" : "OFFLINE"}',
+    );
     return {
       'success': true,
       'offline': true,

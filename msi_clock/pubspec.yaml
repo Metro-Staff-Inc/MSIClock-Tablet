@@ -1,7 +1,7 @@
 name: msi_clock
 description: "Metro Staff Inc. Time Clock Application"
 publish_to: "none"
-version: 1.0.2+3
+version: 1.0.5+6
 
 environment:
   sdk: ^3.7.2
@@ -40,6 +40,9 @@ dependencies:
   url_launcher: ^6.1.14 # For opening APK download URL
   dio: ^5.4.0 # For downloading files
   permission_handler: ^11.0.1 # For install permission
+  battery_plus: ^4.0.0 # For accessing battery information
+  network_info_plus: ^4.0.0 # For getting device MAC address
+  screen_brightness: ^1.0.0 # For controlling screen brightness
 
 dev_dependencies:
   flutter_test:

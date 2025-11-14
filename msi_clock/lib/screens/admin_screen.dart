@@ -4,12 +4,16 @@ import 'dart:io';
 import '../config/app_config.dart';
 import '../config/app_theme.dart';
 import '../services/settings_service.dart';
-import '../main.dart';
 import '../services/update_service.dart';
+import '../services/battery_monitor_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../providers/punch_provider.dart';
+import '../services/power_saving_manager.dart';
+
+// Method channel for device information
+const platform = MethodChannel('com.example.msi_clock/device_info');
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -27,6 +31,14 @@ class _AdminScreenState extends State<AdminScreen> {
   final _endpointController = TextEditingController();
   final _newAdminPasswordController = TextEditingController();
   final _confirmAdminPasswordController = TextEditingController();
+
+  // Device information
+  final _deviceNameController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _macAddressController = TextEditingController();
+  bool _isLoadingMacAddress = true;
+  bool _isPushingBatteryData = false;
+
   bool _isLoading = true;
   bool _showPassword = false; // State variable to toggle password visibility
   bool _showNewAdminPassword =
@@ -40,6 +52,11 @@ class _AdminScreenState extends State<AdminScreen> {
   String? _selectedImagePath;
   File? _selectedImageFile;
   final ImagePicker _imagePicker = ImagePicker();
+
+  // Power saving settings
+  final PowerSavingManager _powerSavingManager = PowerSavingManager();
+  final _inactivityThresholdController = TextEditingController();
+  final _heartbeatIntervalController = TextEditingController();
 
   // For update functionality
   final UpdateService _updateService = UpdateService();
@@ -57,6 +74,8 @@ class _AdminScreenState extends State<AdminScreen> {
     _loadSettings();
     _loadAppVersion();
     _loadCameraSettings();
+    _loadMacAddress();
+    _loadPowerSavingSettings();
   }
 
   /// Load the current app version
@@ -144,6 +163,16 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  /// Load power saving settings
+  Future<void> _loadPowerSavingSettings() async {
+    setState(() {
+      _inactivityThresholdController.text =
+          _powerSavingManager.inactivityThresholdMinutes.toString();
+      _heartbeatIntervalController.text =
+          _powerSavingManager.heartbeatIntervalSeconds.toString();
+    });
+  }
+
   @override
   void dispose() {
     _usernameController.dispose();
@@ -152,6 +181,11 @@ class _AdminScreenState extends State<AdminScreen> {
     _endpointController.dispose();
     _newAdminPasswordController.dispose();
     _confirmAdminPasswordController.dispose();
+    _deviceNameController.dispose();
+    _locationController.dispose();
+    _macAddressController.dispose();
+    _inactivityThresholdController.dispose();
+    _heartbeatIntervalController.dispose();
     super.dispose();
   }
 
@@ -171,7 +205,6 @@ class _AdminScreenState extends State<AdminScreen> {
 
       setState(() {});
     } catch (e) {
-      print('Error loading camera settings: $e');
       // Default to camera enabled if there's an error
       setState(() {
         _isCameraEnabled = true;
@@ -199,6 +232,79 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  /// Load the device's MAC address
+  Future<void> _loadMacAddress() async {
+    setState(() {
+      _isLoadingMacAddress = true;
+    });
+
+    try {
+      String macAddress;
+
+      // Try to get MAC address through platform-specific code
+      try {
+        // Call native method to get MAC address
+        macAddress = await platform.invokeMethod('getMacAddress');
+      } catch (methodError) {
+        macAddress = 'Not available';
+      }
+
+      // If we couldn't get the MAC address, use a placeholder
+      if (macAddress.isEmpty) {
+        macAddress = 'Unknown';
+      }
+
+      setState(() {
+        _macAddressController.text = macAddress;
+        _isLoadingMacAddress = false;
+      });
+    } catch (e) {
+      setState(() {
+        _macAddressController.text = 'Error: Could not retrieve';
+        _isLoadingMacAddress = false;
+      });
+    }
+  }
+
+  /// Manually push battery data to the API
+  Future<void> _pushBatteryData() async {
+    setState(() {
+      _isPushingBatteryData = true;
+    });
+
+    try {
+      // Get the battery monitor service
+      final batteryMonitorService = BatteryMonitorService();
+
+      // Trigger a manual report
+      await batteryMonitorService.triggerManualReport();
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Battery data sent successfully'),
+            backgroundColor: AppTheme.mainGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send battery data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isPushingBatteryData = false;
+      });
+    }
+  }
+
   Future<void> _loadSettings() async {
     try {
       setState(() => _isLoading = true);
@@ -209,6 +315,21 @@ class _AdminScreenState extends State<AdminScreen> {
       String endpoint = 'https://msiwebtrax.com';
       if (settings.containsKey('endpoint') && settings['endpoint'] is String) {
         endpoint = settings['endpoint'] as String;
+      }
+
+      // Load device information
+      if (settings.containsKey('battery') &&
+          settings['battery'] is Map<String, dynamic>) {
+        final batterySettings = settings['battery'] as Map<String, dynamic>;
+
+        _deviceNameController.text =
+            batterySettings['deviceName'] as String? ?? 'MSI-Tablet';
+        _locationController.text =
+            batterySettings['location'] as String? ?? 'Unknown';
+      } else {
+        // Default values
+        _deviceNameController.text = 'MSI-Tablet';
+        _locationController.text = 'Unknown';
       }
 
       setState(() {
@@ -245,6 +366,20 @@ class _AdminScreenState extends State<AdminScreen> {
       await AppConfig.updateCameraSettings(
         isEnabled: _isCameraEnabled,
         selectedImagePath: _selectedImagePath,
+      );
+
+      // Update device information
+      await _settings.updateBatterySettings(
+        deviceName: _deviceNameController.text,
+        location: _locationController.text,
+      );
+
+      // Update power saving settings
+      await _powerSavingManager.saveSettings(
+        inactivityThresholdMinutes:
+            int.tryParse(_inactivityThresholdController.text) ?? 2,
+        heartbeatIntervalSeconds:
+            int.tryParse(_heartbeatIntervalController.text) ?? 30,
       );
 
       // Update admin password if provided
@@ -323,6 +458,185 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                           ),
                         ),
+
+                      // Device Information Section
+                      Text(
+                        'Device Information',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.defaultText,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Device Name
+                      TextFormField(
+                        controller: _deviceNameController,
+                        decoration: InputDecoration(
+                          labelText: 'Device Name',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: 'MSI-Tablet',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter device name';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Location
+                      TextFormField(
+                        controller: _locationController,
+                        decoration: InputDecoration(
+                          labelText: 'Location',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: 'Front Desk',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter location';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // MAC Address (read-only)
+                      TextFormField(
+                        controller: _macAddressController,
+                        readOnly: true,
+                        decoration: InputDecoration(
+                          labelText: 'MAC Address',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: 'Loading...',
+                          suffixIcon:
+                              _isLoadingMacAddress
+                                  ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        AppTheme.mainGreen,
+                                      ),
+                                    ),
+                                  )
+                                  : Icon(
+                                    Icons.computer,
+                                    color: AppTheme.defaultText.withOpacity(
+                                      0.7,
+                                    ),
+                                  ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Push Battery Data Button
+                      ElevatedButton.icon(
+                        icon:
+                            _isPushingBatteryData
+                                ? SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                                : const Icon(Icons.battery_full),
+                        label: Text(
+                          _isPushingBatteryData
+                              ? 'Sending...'
+                              : 'Push Battery Data',
+                        ),
+                        onPressed:
+                            _isPushingBatteryData ? null : _pushBatteryData,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.mainGreen,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 16,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 32),
+
+                      // Power Saving Settings Section
+                      Text(
+                        'Power Saving Settings',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.defaultText,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Inactivity Threshold
+                      TextFormField(
+                        controller: _inactivityThresholdController,
+                        decoration: InputDecoration(
+                          labelText: 'Inactivity Threshold (minutes)',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: '2',
+                          helperText: 'Time before entering sleep mode',
+                          helperStyle: TextStyle(
+                            color: AppTheme.defaultText.withOpacity(0.7),
+                          ),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter a value';
+                          }
+                          final threshold = int.tryParse(value);
+                          if (threshold == null || threshold <= 0) {
+                            return 'Please enter a positive number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // SOAP Heartbeat Interval
+                      TextFormField(
+                        controller: _heartbeatIntervalController,
+                        decoration: InputDecoration(
+                          labelText: 'SOAP Heartbeat Interval (seconds)',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: '30',
+                          helperText: 'How often to check SOAP connection',
+                          helperStyle: TextStyle(
+                            color: AppTheme.defaultText.withOpacity(0.7),
+                          ),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter a value';
+                          }
+                          final interval = int.tryParse(value);
+                          if (interval == null || interval <= 0) {
+                            return 'Please enter a positive number';
+                          }
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 32),
 
                       // SOAP Settings Section
                       Text(

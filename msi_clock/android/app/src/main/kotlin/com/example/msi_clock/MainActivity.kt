@@ -2,13 +2,17 @@ package com.example.msi_clock
 
 import android.app.ActivityManager
 import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import java.net.NetworkInterface
+import java.util.Collections
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -74,10 +78,53 @@ class MainActivity : FlutterActivity() {
         }
     }
     
+    // Get device MAC address
+    private fun getMacAddress(): String {
+        try {
+            // Try to get MAC address from network interfaces
+            val networkInterfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+            for (networkInterface in networkInterfaces) {
+                if (networkInterface.name.equals("wlan0", ignoreCase = true)) {
+                    val macBytes = networkInterface.hardwareAddress
+                    if (macBytes != null) {
+                        // Format MAC address as XX:XX:XX:XX:XX:XX
+                        val macBuilder = StringBuilder()
+                        for (i in macBytes.indices) {
+                            macBuilder.append(String.format("%02X", macBytes[i]))
+                            if (i < macBytes.size - 1) {
+                                macBuilder.append(":")
+                            }
+                        }
+                        return macBuilder.toString()
+                    }
+                }
+            }
+            
+            // Fallback to Android ID if MAC address is not available
+            val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            // Format Android ID to look like a MAC address (for consistency)
+            if (androidId.length >= 12) {
+                val formattedId = StringBuilder()
+                for (i in 0 until 6) {
+                    formattedId.append(androidId.substring(i * 2, i * 2 + 2))
+                    if (i < 5) {
+                        formattedId.append(":")
+                    }
+                }
+                return formattedId.toString()
+            }
+            return "00:00:00:00:00:00" // Default if we can't get anything
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return "Unknown"
+        }
+    }
+
     // Method channel setup
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
+        // Kiosk mode channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.example.msi_clock/kiosk")
             .setMethodCallHandler { call, result ->
                 if (call.method == "exitKioskMode") {
@@ -93,6 +140,24 @@ class MainActivity : FlutterActivity() {
                     }
                 } else {
                     result.notImplemented()
+                }
+            }
+            
+        // Device info channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.example.msi_clock/device_info")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getMacAddress" -> {
+                        try {
+                            val macAddress = getMacAddress()
+                            result.success(macAddress)
+                        } catch (e: Exception) {
+                            result.error("MAC_ADDRESS_ERROR", "Failed to get MAC address", e.toString())
+                        }
+                    }
+                    else -> {
+                        result.notImplemented()
+                    }
                 }
             }
     }

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:io';
 import '../config/app_config.dart';
 import '../config/app_theme.dart';
+import '../main.dart';
 
 class AdminPasswordDialog extends StatefulWidget {
   const AdminPasswordDialog({super.key});
@@ -20,7 +23,7 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
     super.dispose();
   }
 
-  Future<void> _validatePassword() async {
+  Future<void> _validatePassword({bool closeProgram = false}) async {
     if (_isValidating) return; // Prevent multiple validations
 
     setState(() {
@@ -33,7 +36,13 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
       final adminPassword = await AppConfig.getAdminPassword();
 
       if (password == adminPassword) {
-        Navigator.of(context).pop(true);
+        if (closeProgram) {
+          // Close the program if password is correct and closeProgram is true
+          _closeApplication();
+        } else {
+          // Otherwise proceed to admin screen
+          Navigator.of(context).pop(true);
+        }
       } else {
         setState(() {
           _error = 'Invalid password';
@@ -49,6 +58,23 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
         _isValidating = false;
       });
     }
+  }
+
+  /// Close the application
+  Future<void> _closeApplication() async {
+    // First try to exit kiosk mode if on Android
+    if (Platform.isAndroid) {
+      try {
+        await platform.invokeMethod('exitKioskMode');
+        // Give a short delay for kiosk mode to exit
+        await Future.delayed(const Duration(milliseconds: 500));
+      } catch (e) {
+        print('Error exiting kiosk mode: $e');
+      }
+    }
+
+    // Then close the app
+    SystemNavigator.pop();
   }
 
   @override
@@ -98,7 +124,7 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: _validatePassword,
+          onPressed: () => _validatePassword(),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppTheme.mainGreen,
             foregroundColor: AppTheme.windowBackground,
@@ -108,6 +134,20 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
           ),
           child: const Text(
             'Enter',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () => _validatePassword(closeProgram: true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red.shade700,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          child: const Text(
+            'Close Program',
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
         ),

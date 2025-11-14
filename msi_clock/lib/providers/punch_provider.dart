@@ -54,6 +54,36 @@ class PunchProvider extends ChangeNotifier {
     }
   }
 
+  /// Prepares the SOAP connection for an immediate punch operation
+  /// This is especially useful after coming out of sleep mode
+  Future<bool> prepareForPunch() async {
+    print(
+      'PUNCH DEBUG: Preparing for punch operation at ${DateTime.now().toIso8601String()}',
+    );
+    try {
+      // First, force a reconnection to ensure we have a fresh connection
+      final isConnected = await checkConnectivity(forceReconnect: true);
+
+      if (!isConnected) {
+        print('PUNCH DEBUG: First connection attempt failed, retrying');
+        // If first attempt failed, try again after a short delay
+        await Future.delayed(const Duration(seconds: 1));
+        final retryResult = await checkConnectivity(forceReconnect: true);
+
+        if (!retryResult) {
+          print('PUNCH DEBUG: Second connection attempt also failed');
+          return false;
+        }
+      }
+
+      print('PUNCH DEBUG: Connection established, ready for punch operation');
+      return true;
+    } catch (e) {
+      print('PUNCH DEBUG: Error preparing for punch: $e');
+      return false;
+    }
+  }
+
   /// Load camera settings from AppConfig
   Future<void> loadCameraSettings() async {
     try {
@@ -72,7 +102,6 @@ class PunchProvider extends ChangeNotifier {
 
       notifyListeners();
     } catch (e) {
-      print('Error loading camera settings: $e');
       // Default to camera enabled if there's an error
       _isCameraEnabled = true;
       _selectedImagePath = null;
@@ -103,7 +132,6 @@ class PunchProvider extends ChangeNotifier {
 
       notifyListeners();
     } catch (e) {
-      print('Error updating camera settings: $e');
       _error =
           _currentLanguage == 'en'
               ? 'Failed to update camera settings'
@@ -122,9 +150,7 @@ class PunchProvider extends ChangeNotifier {
       // Only initialize camera if it's enabled
       if (_isCameraEnabled) {
         await _punchService.initializeCamera(forceReinit: forceReinit);
-      } else {
-        print('Camera initialization skipped - camera is disabled in settings');
-      }
+      } else {}
 
       notifyListeners();
     } catch (e) {
@@ -160,44 +186,40 @@ class PunchProvider extends ChangeNotifier {
     }
 
     try {
-      // Debug: Log start time in PunchProvider
-      final providerStartTime = DateTime.now();
-      print(
-        'TIMING: PunchProvider.recordPunch started at ${providerStartTime.toIso8601String()}',
-      );
-
       _isLoading = true;
       _error = null;
       notifyListeners();
 
-      // Debug: Log when calling PunchService
+      // First, ensure we have connectivity and the connection is ready for a punch
       print(
-        'TIMING: Calling PunchService.recordPunch at ${DateTime.now().toIso8601String()}',
+        'PUNCH DEBUG: Preparing connection for punch at ${DateTime.now().toIso8601String()}',
+      );
+      final connectionReady = await prepareForPunch();
+
+      if (!connectionReady) {
+        print(
+          'PUNCH DEBUG: Connection preparation failed, punch may not reach server',
+        );
+      } else {
+        print('PUNCH DEBUG: Connection ready, proceeding with punch');
+      }
+
+      // Record the punch
+      print(
+        'PUNCH DEBUG: Recording punch for employee $employeeId at ${DateTime.now().toIso8601String()}',
       );
       _lastPunch = await _punchService.recordPunch(
         employeeId,
         isCameraEnabled: _isCameraEnabled,
       );
-
-      // Debug: Log when response is received from PunchService
-      final providerEndTime = DateTime.now();
-      final providerDuration = providerEndTime.difference(providerStartTime);
       print(
-        'TIMING: PunchService.recordPunch returned at ${providerEndTime.toIso8601String()}',
-      );
-      print(
-        'TIMING: Total time in PunchProvider.recordPunch: ${providerDuration.inMilliseconds}ms',
+        'PUNCH DEBUG: Punch recorded with result: ${_lastPunch?.isSynced == true ? "SYNCED" : "NOT SYNCED"}',
       );
 
       // Don't set error message when punch has exception
       // The lastPunch object already contains the status message
       // and will be displayed in the UI
     } catch (e) {
-      // Debug: Log error timing
-      print(
-        'TIMING: Error in PunchProvider.recordPunch at ${DateTime.now().toIso8601String()}',
-      );
-
       // Truncate error message to prevent layout issues
       final errorString = e.toString();
       final truncatedError =
@@ -205,6 +227,7 @@ class PunchProvider extends ChangeNotifier {
               ? '${errorString.substring(0, 47)}...'
               : errorString;
 
+      print('PUNCH DEBUG: Error recording punch: $truncatedError');
       _error =
           _currentLanguage == 'en'
               ? 'Failed to record punch'
@@ -213,11 +236,6 @@ class PunchProvider extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
-
-      // Debug: Log completion time
-      print(
-        'TIMING: PunchProvider.recordPunch completed at ${DateTime.now().toIso8601String()}',
-      );
     }
   }
 

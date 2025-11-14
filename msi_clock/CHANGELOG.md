@@ -5,6 +5,57 @@ All notable changes to the MSI Clock application will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2025-11-13
+
+### Fixed
+
+- Fixed screen dimming in power saving mode by implementing proper brightness control
+- Added screen_brightness package for better control of device brightness
+- Improved sleep mode activation and deactivation with proper brightness restoration
+
+## [1.0.4] - 2025-11-13
+
+### Added
+
+- Improved power saving settings in Admin Screen
+- Clarified SOAP heartbeat interval setting with better description
+- Renamed power saving section for better user understanding
+
+### Changed
+
+- Updated documentation to reflect new power saving settings
+- Improved UI labels for better clarity on battery optimization settings
+- Reorganized Admin Screen settings for better user experience
+
+## [1.0.3] - 2025-11-10
+
+### Added
+
+- Battery monitoring feature that reports tablet battery level to API hourly
+- Automatic retry mechanism for failed battery reports
+- Battery API configuration in settings
+- Comprehensive error handling for battery monitoring
+- Power saving features with sleep mode during inactivity
+- Configurable inactivity threshold and heartbeat intervals
+- Screen dimming and camera disabling during sleep mode
+- New documentation files: battery_monitoring_feature.md and battery_monitoring_admin_integration.md
+- "Close Application" button in Admin Screen
+- Device MAC address display in Admin Screen
+
+### Fixed
+
+- Fixed issue where IP address was incorrectly displayed instead of MAC address
+- Updated battery check-in to include device MAC address in API requests
+- Improved MAC address formatting to use XX:XX:XX:XX:XX:XX format
+
+### Changed
+
+- Updated settings service to store battery monitoring configuration
+- Added battery_plus package for battery level monitoring
+- Enhanced application initialization to include battery monitoring service
+- Optimized network operations to reduce battery consumption
+- Improved user interface with sleep mode indication
+
 ## [1.0.2] - 2025-06-16
 
 ### Fixed
