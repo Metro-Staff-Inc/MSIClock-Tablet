@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import '../models/punch.dart';
@@ -78,6 +79,7 @@ class PunchService {
     await _logger.logDebug('Punch service started at: $punchServiceStartTime');
 
     Uint8List? imageData;
+    XFile? tempImageFile;
     try {
       final cameraStartTime = DateTime.now();
       // Capture photo if camera is available and enabled
@@ -85,13 +87,28 @@ class PunchService {
           _cameraController != null &&
           _cameraController!.value.isInitialized) {
         await _logger.logDebug('Capturing camera image...');
-        final image = await _cameraController!.takePicture();
-        imageData = await image.readAsBytes();
+        tempImageFile = await _cameraController!.takePicture();
+        imageData = await tempImageFile.readAsBytes();
         final cameraEndTime = DateTime.now();
         final cameraDuration = cameraEndTime.difference(cameraStartTime);
         await _logger.logDebug(
           'Camera capture completed in ${cameraDuration.inMilliseconds}ms',
         );
+
+        // CRITICAL FIX: Delete the temporary camera file immediately after reading
+        try {
+          final file = File(tempImageFile.path);
+          if (await file.exists()) {
+            await file.delete();
+            await _logger.logDebug(
+              'Deleted temporary camera file: ${tempImageFile.path}',
+            );
+          }
+        } catch (deleteError) {
+          await _logger.logWarning(
+            'Failed to delete temporary camera file: $deleteError',
+          );
+        }
       } else if (!isCameraEnabled) {
         await _logger.logDebug('Camera disabled, skipping image capture');
       } else {

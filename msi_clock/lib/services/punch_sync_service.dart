@@ -20,6 +20,7 @@ class PunchSyncService {
 
   SoapService? _soapService;
   Timer? _syncTimer;
+  Timer? _cleanupTimer;
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
   bool _isSyncing = false;
   bool _isInitialized = false;
@@ -43,8 +44,14 @@ class PunchSyncService {
       // Start periodic sync timer (every 5 minutes)
       _startPeriodicSync();
 
+      // Start daily cleanup timer (runs at 3 AM daily)
+      _startDailyCleanup();
+
       // Perform initial sync
       await syncUnsyncedPunches();
+
+      // Perform initial cleanup on startup
+      await cleanupOldPunches();
 
       _isInitialized = true;
       await _logger.logInfo('Punch sync service initialized successfully');
@@ -58,6 +65,36 @@ class PunchSyncService {
     _syncTimer?.cancel();
     _syncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       syncUnsyncedPunches();
+    });
+  }
+
+  /// Start daily cleanup timer (runs at 3 AM daily)
+  void _startDailyCleanup() {
+    _cleanupTimer?.cancel();
+
+    // Calculate time until next 3 AM
+    final now = DateTime.now();
+    var scheduledTime = DateTime(now.year, now.month, now.day, 3, 0);
+
+    // If 3 AM has already passed today, schedule for tomorrow
+    if (scheduledTime.isBefore(now)) {
+      scheduledTime = scheduledTime.add(const Duration(days: 1));
+    }
+
+    final timeUntilCleanup = scheduledTime.difference(now);
+
+    _logger.logInfo(
+      'Scheduling daily database cleanup at ${scheduledTime.toString()} '
+      '(in ${timeUntilCleanup.inHours} hours)',
+    );
+
+    // Schedule the first cleanup
+    Timer(timeUntilCleanup, () {
+      cleanupOldPunches();
+      // Then schedule it to repeat every 24 hours
+      _cleanupTimer = Timer.periodic(const Duration(days: 1), (_) {
+        cleanupOldPunches();
+      });
     });
   }
 
@@ -246,6 +283,7 @@ class PunchSyncService {
   /// Dispose of the service
   void dispose() {
     _syncTimer?.cancel();
+    _cleanupTimer?.cancel();
     _connectivitySubscription?.cancel();
     _soapService?.dispose();
     _isInitialized = false;
