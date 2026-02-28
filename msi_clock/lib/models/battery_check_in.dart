@@ -23,6 +23,9 @@ class BatteryCheckIn {
   /// Free storage space percentage (0-100)
   final int? freeSpacePct;
 
+  /// App version (e.g., "1.0.5+6")
+  final String? appVersion;
+
   /// Creates a new BatteryCheckIn instance
   BatteryCheckIn({
     required this.deviceName,
@@ -32,6 +35,7 @@ class BatteryCheckIn {
     this.freeSpaceGB,
     this.totalSpaceGB,
     this.freeSpacePct,
+    this.appVersion,
   });
 
   /// Converts the BatteryCheckIn to a JSON map
@@ -55,6 +59,10 @@ class BatteryCheckIn {
     if (freeSpacePct != null) {
       json['free_space_pct'] = freeSpacePct!;
     }
+    // Include app version if available
+    if (appVersion != null) {
+      json['app_version'] = appVersion!;
+    }
     return json;
   }
 
@@ -71,6 +79,7 @@ class BatteryCheckIn {
       freeSpaceGB: json['free_space_gb'] as double?,
       totalSpaceGB: json['total_space_gb'] as double?,
       freeSpacePct: json['free_space_pct'] as int?,
+      appVersion: json['app_version'] as String?,
     );
   }
   @override
@@ -79,5 +88,6 @@ class BatteryCheckIn {
       'batteryPct: $batteryPct, macAddress: $macAddress, '
       'freeSpace: ${freeSpaceGB != null ? '${freeSpaceGB!.toStringAsFixed(2)} GB' : 'N/A'} / '
       '${totalSpaceGB != null ? '${totalSpaceGB!.toStringAsFixed(2)} GB' : 'N/A'}, '
-      'freeSpacePct: ${freeSpacePct ?? 'N/A'}%)';
+      'freeSpacePct: ${freeSpacePct ?? 'N/A'}%, '
+      'appVersion: ${appVersion ?? 'N/A'})';
 }

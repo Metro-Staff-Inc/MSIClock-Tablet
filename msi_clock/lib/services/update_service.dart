@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 /// Service for checking app updates from GitHub releases
 class UpdateService {
   // GitHub API URL for releases
@@ -17,6 +18,7 @@ class UpdateService {
   static const String prefsLastCheckKey = 'last_update_check';
   static const Duration checkInterval = Duration(days: 1);
   final Dio _dio = Dio();
+
   /// Check if it's time for a scheduled update check
   Future<bool> shouldCheckForUpdate() async {
     final prefs = await SharedPreferences.getInstance();
@@ -24,6 +26,7 @@ class UpdateService {
     final now = DateTime.now().millisecondsSinceEpoch;
     return now - lastCheck > checkInterval.inMilliseconds;
   }
+
   /// Update the last check timestamp
   Future<void> updateLastCheckTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -32,11 +35,13 @@ class UpdateService {
       DateTime.now().millisecondsSinceEpoch,
     );
   }
+
   /// Get the current app version
   Future<String> getCurrentVersion() async {
     final packageInfo = await PackageInfo.fromPlatform();
     return packageInfo.version;
   }
+
   /// Check if an update is available
   /// Returns a tuple (isUpdateAvailable, latestVersion, downloadUrl, releaseNotes)
   Future<Map<String, dynamic>> checkForUpdate() async {
@@ -78,6 +83,7 @@ class UpdateService {
       };
     }
   }
+
   /// Compare version strings to determine if latest is newer than current
   bool isNewerVersion(String currentVersion, String latestVersion) {
     if (currentVersion == latestVersion) return false;
@@ -93,6 +99,7 @@ class UpdateService {
     // If all comparable parts are equal, the longer version is newer
     return latest.length > current.length;
   }
+
   /// Schedule a daily check at 1:00 AM
   Future<void> scheduleUpdateCheck() async {
     // Calculate time until next 1:00 AM
@@ -114,6 +121,7 @@ class UpdateService {
       scheduleUpdateCheck();
     });
   }
+
   /// Check for updates and install automatically without user interaction
   Future<void> checkAndAutoUpdate() async {
     try {
@@ -125,11 +133,10 @@ class UpdateService {
           updateInfo['downloadUrl'] != null) {
         // Download and install automatically
         await silentDownloadAndInstall(updateInfo['downloadUrl']);
-      } else {
-      }
-    } catch (e) {
-    }
+      } else {}
+    } catch (e) {}
   }
+
   /// Download and install the update silently (for automatic updates)
   Future<void> silentDownloadAndInstall(String url) async {
     try {
@@ -168,13 +175,11 @@ class UpdateService {
         final uri = Uri.file(file.path);
         if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
-        } else {
-        }
-      } else {
-      }
-    } catch (e) {
-    }
+        } else {}
+      } else {}
+    } catch (e) {}
   }
+
   /// Download and install the update (interactive version for manual updates)
   Future<void> downloadAndInstallUpdate(
     String url,
@@ -240,6 +245,7 @@ class UpdateService {
       onError('Error downloading update: $e');
     }
   }
+
   /// Show update dialog with custom styling
   Future<bool> showUpdateDialog(
     BuildContext context,

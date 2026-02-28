@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:disk_space/disk_space.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../models/battery_check_in.dart';
 import 'battery_api_service.dart';
 import 'settings_service.dart';
@@ -77,6 +78,8 @@ class BatteryMonitorService {
       final macAddress = await _getMacAddress();
       // Get storage metrics
       final storageMetrics = await _getStorageMetrics();
+      // Get app version
+      final appVersion = await _getAppVersion();
       // Create check-in data
       final checkIn = BatteryCheckIn(
         deviceName: deviceName,
@@ -86,12 +89,13 @@ class BatteryMonitorService {
         freeSpaceGB: storageMetrics['freeSpaceGB'],
         totalSpaceGB: storageMetrics['totalSpaceGB'],
         freeSpacePct: storageMetrics['freeSpacePct'],
+        appVersion: appVersion,
       );
       // Log the check-in for monitoring
       final freeGB = storageMetrics['freeSpaceGB'];
       final totalGB = storageMetrics['totalSpaceGB'];
       final freePct = storageMetrics['freeSpacePct'];
-      
+
       await _logger.logInfo(
         'Battery check-in: Battery=$batteryPct%, '
         'Free Storage=${freeGB != null ? freeGB.toStringAsFixed(2) : 'N/A'}GB / '
@@ -150,6 +154,17 @@ class BatteryMonitorService {
     } catch (e) {
       await _logger.logError('Failed to get storage metrics: $e');
       return {'freeSpaceGB': null, 'totalSpaceGB': null, 'freeSpacePct': null};
+    }
+  }
+
+  /// Get the app version
+  Future<String?> _getAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      return '${packageInfo.version}+${packageInfo.buildNumber}';
+    } catch (e) {
+      await _logger.logError('Failed to get app version: $e');
+      return null;
     }
   }
 
