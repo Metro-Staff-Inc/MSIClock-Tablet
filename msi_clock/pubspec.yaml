@@ -44,6 +44,7 @@ dependencies:
   network_info_plus: ^4.0.0 # For getting device MAC address
   screen_brightness: ^1.0.0 # For controlling screen brightness
   crypto: ^3.0.3 # For HMAC-SHA256 signing (R2 uploads)
+  disk_space: ^0.2.1 # For getting device storage information
 
 dev_dependencies:
   flutter_test:

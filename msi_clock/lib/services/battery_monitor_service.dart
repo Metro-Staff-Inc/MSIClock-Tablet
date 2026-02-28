@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:disk_space/disk_space.dart';
 import 'package:flutter/services.dart';
 import '../models/battery_check_in.dart';
 import 'battery_api_service.dart';
 import 'settings_service.dart';
+import 'logger_service.dart';
+
 /// Service responsible for monitoring battery levels and scheduling reports
 class BatteryMonitorService {
   // Singleton instance
@@ -15,18 +18,21 @@ class BatteryMonitorService {
   final SettingsService _settingsService = SettingsService();
   final BatteryApiService _apiService = BatteryApiService();
   final Battery _battery = Battery();
+  final LoggerService _logger = LoggerService();
   // Method channel for device information
   static const platform = MethodChannel('com.example.msi_clock/device_info');
   // Timer for periodic reporting
   Timer? _reportingTimer;
   // Flag to track if a report is currently in progress
   bool _isReporting = false;
+
   /// Initialize the service
   Future<void> initialize() async {
     // Schedule the first report
     _scheduleNextReport();
     // Log initialization
   }
+
   /// Schedule the next battery report
   void _scheduleNextReport() {
     // Cancel any existing timer
@@ -42,6 +48,7 @@ class BatteryMonitorService {
       _scheduleNextReport();
     });
   }
+
   /// Get the device's MAC address
   Future<String?> _getMacAddress() async {
     try {
@@ -52,6 +59,7 @@ class BatteryMonitorService {
       return null;
     }
   }
+
   /// Report the current battery level
   Future<void> _reportBatteryLevel() async {
     // Prevent concurrent reports
@@ -67,12 +75,28 @@ class BatteryMonitorService {
       final batteryPct = await _getBatteryLevel();
       // Get MAC address
       final macAddress = await _getMacAddress();
+      // Get storage metrics
+      final storageMetrics = await _getStorageMetrics();
       // Create check-in data
       final checkIn = BatteryCheckIn(
         deviceName: deviceName,
         location: location,
         batteryPct: batteryPct,
         macAddress: macAddress,
+        freeSpaceGB: storageMetrics['freeSpaceGB'],
+        totalSpaceGB: storageMetrics['totalSpaceGB'],
+        freeSpacePct: storageMetrics['freeSpacePct'],
+      );
+      // Log the check-in for monitoring
+      final freeGB = storageMetrics['freeSpaceGB'];
+      final totalGB = storageMetrics['totalSpaceGB'];
+      final freePct = storageMetrics['freeSpacePct'];
+      
+      await _logger.logInfo(
+        'Battery check-in: Battery=$batteryPct%, '
+        'Free Storage=${freeGB != null ? freeGB.toStringAsFixed(2) : 'N/A'}GB / '
+        '${totalGB != null ? totalGB.toStringAsFixed(2) : 'N/A'}GB '
+        '(${freePct ?? 'N/A'}% free)',
       );
       // Send to API
       final success = await _apiService.sendBatteryCheckIn(checkIn);
@@ -88,6 +112,7 @@ class BatteryMonitorService {
       _isReporting = false;
     }
   }
+
   /// Get the current battery level
   Future<int> _getBatteryLevel() async {
     try {
@@ -99,10 +124,40 @@ class BatteryMonitorService {
       return 0;
     }
   }
+
+  /// Get storage metrics for the entire device
+  Future<Map<String, dynamic>> _getStorageMetrics() async {
+    try {
+      // Get free disk space in MB
+      final freeSpaceMB = await DiskSpace.getFreeDiskSpace;
+      final totalSpaceMB = await DiskSpace.getTotalDiskSpace;
+
+      // Convert MB to GB (MB / 1024)
+      final freeSpaceGB = freeSpaceMB != null ? (freeSpaceMB / 1024) : null;
+      final totalSpaceGB = totalSpaceMB != null ? (totalSpaceMB / 1024) : null;
+
+      // Calculate percentage
+      final freeSpacePct =
+          (freeSpaceGB != null && totalSpaceGB != null && totalSpaceGB > 0)
+              ? ((freeSpaceGB / totalSpaceGB) * 100).round()
+              : null;
+
+      return {
+        'freeSpaceGB': freeSpaceGB,
+        'totalSpaceGB': totalSpaceGB,
+        'freeSpacePct': freeSpacePct,
+      };
+    } catch (e) {
+      await _logger.logError('Failed to get storage metrics: $e');
+      return {'freeSpaceGB': null, 'totalSpaceGB': null, 'freeSpacePct': null};
+    }
+  }
+
   /// Manually trigger a battery report (for testing)
   Future<void> triggerManualReport() async {
     await _reportBatteryLevel();
   }
+
   /// Dispose the service
   void dispose() {
     _reportingTimer?.cancel();
