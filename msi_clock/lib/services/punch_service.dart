@@ -3,12 +3,13 @@ import 'package:camera/camera.dart';
 import '../models/punch.dart';
 import '../models/soap_config.dart';
 import 'soap_service.dart';
+import 'logger_service.dart';
 
 class PunchService {
   final SoapService _soapService;
+  final LoggerService _logger = LoggerService();
   CameraController? _cameraController;
   bool _isInitialized = false;
-
   PunchService(SoapConfig config) : _soapService = SoapService(config);
   bool get isOnline => _soapService.isOnline;
   String? get connectionError => _soapService.connectionError;
@@ -22,22 +23,18 @@ class PunchService {
 
   Future<void> initializeCamera({bool forceReinit = false}) async {
     if (_isInitialized && !forceReinit) return;
-
     // If forcing reinitialization, dispose of the current camera first
     if (_isInitialized && forceReinit) {
       await disposeCamera();
     }
-
     try {
       // Get the list of available cameras
       final cameras = await availableCameras();
-
       // Find front camera
       final frontCamera = cameras.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
-
       // Initialize the camera controller
       _cameraController = CameraController(
         frontCamera,
@@ -45,11 +42,9 @@ class PunchService {
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
-
       await _cameraController!.initialize();
       _isInitialized = true;
     } catch (e) {
-      print('Failed to initialize camera: $e');
       _cameraController = null;
       _isInitialized = false;
       rethrow;
@@ -70,74 +65,69 @@ class PunchService {
     _soapService.dispose(); // Close the HTTP client
   }
 
-  Future<Punch> recordPunch(
+  Future<Punch?> recordPunch(
     String employeeId, {
     bool isCameraEnabled = true,
   }) async {
-    // Debug: Log start time
     final punchServiceStartTime = DateTime.now();
-    print(
-      'TIMING: PunchService.recordPunch started at ${punchServiceStartTime.toIso8601String()}',
-    );
-
-    // Use a single timestamp for both punch and image to ensure they match
     final timestamp = DateTime.now();
+
+    await _logger.logPunch('Recording punch for employee: $employeeId');
+    await _logger.logDebug('Punch service started at: $punchServiceStartTime');
+
     Uint8List? imageData;
-
     try {
-      // Debug: Log camera capture start
       final cameraStartTime = DateTime.now();
-      print(
-        'TIMING: Camera capture started at ${cameraStartTime.toIso8601String()}',
-      );
-
       // Capture photo if camera is available and enabled
       if (isCameraEnabled &&
           _cameraController != null &&
           _cameraController!.value.isInitialized) {
+        await _logger.logDebug('Capturing camera image...');
         final image = await _cameraController!.takePicture();
         imageData = await image.readAsBytes();
-
-        // Debug: Log camera capture completion
         final cameraEndTime = DateTime.now();
         final cameraDuration = cameraEndTime.difference(cameraStartTime);
-        print(
-          'TIMING: Camera capture completed at ${cameraEndTime.toIso8601String()}',
+        await _logger.logDebug(
+          'Camera capture completed in ${cameraDuration.inMilliseconds}ms',
         );
-        print('TIMING: Camera capture took ${cameraDuration.inMilliseconds}ms');
       } else if (!isCameraEnabled) {
-        print('TIMING: Camera disabled in settings, skipping photo capture');
+        await _logger.logDebug('Camera disabled, skipping image capture');
       } else {
-        print('TIMING: Camera not initialized, skipping photo capture');
+        await _logger.logWarning('Camera not initialized');
       }
 
-      // Debug: Log SOAP service call start
       final soapStartTime = DateTime.now();
-      print(
-        'TIMING: SoapService.recordPunch started at ${soapStartTime.toIso8601String()}',
-      );
+      await _logger.logDebug('Calling SOAP service...');
 
-      // Record punch with SOAP service, passing the exact same timestamp
-      // for both punch and image to ensure they match in the system
+      // Record punch with SOAP service
       final response = await _soapService.recordPunch(
         employeeId: employeeId,
         punchTime: timestamp,
         imageData: imageData,
-        // Explicitly pass the same timestamp for image upload to ensure they match
         imageTimestamp: timestamp,
       );
 
-      // Debug: Log SOAP service call completion
       final soapEndTime = DateTime.now();
       final soapDuration = soapEndTime.difference(soapStartTime);
-      print(
-        'TIMING: SoapService.recordPunch completed at ${soapEndTime.toIso8601String()}',
-      );
-      print(
-        'TIMING: SoapService.recordPunch took ${soapDuration.inMilliseconds}ms',
+      await _logger.logDebug(
+        'SOAP service completed in ${soapDuration.inMilliseconds}ms',
       );
 
-      // Create punch object from response with the same timestamp
+      // Check if the response contains an exception
+      if (response['exception'] != null && response['exception'] > 0) {
+        await _logger.logPunch(
+          'Punch failed for employee $employeeId: Exception ${response['exception']}',
+        );
+        final errorPunch = Punch.fromResponse(
+          employeeId,
+          timestamp,
+          response,
+          imageData: imageData,
+        );
+        return errorPunch;
+      }
+
+      // If no exception, create a normal punch object
       final punch = Punch.fromResponse(
         employeeId,
         timestamp,
@@ -145,25 +135,18 @@ class PunchService {
         imageData: imageData,
       );
 
-      // Debug: Log PunchService completion
       final punchServiceEndTime = DateTime.now();
       final punchServiceDuration = punchServiceEndTime.difference(
         punchServiceStartTime,
       );
-      print(
-        'TIMING: PunchService.recordPunch completed at ${punchServiceEndTime.toIso8601String()}',
-      );
-      print(
-        'TIMING: Total time in PunchService.recordPunch: ${punchServiceDuration.inMilliseconds}ms',
+
+      await _logger.logPunch(
+        'Punch successful for employee $employeeId (${punch.punchType ?? "unknown"}) - Total time: ${punchServiceDuration.inMilliseconds}ms',
       );
 
       return punch;
     } catch (e) {
-      // Debug: Log error
-      print(
-        'TIMING: Error in PunchService.recordPunch at ${DateTime.now().toIso8601String()}: $e',
-      );
-
+      await _logger.logError('Punch error for employee $employeeId: $e');
       // Return offline punch in case of error
       return Punch(
         employeeId: employeeId,
@@ -177,4 +160,10 @@ class PunchService {
   CameraController? get cameraController => _cameraController;
   bool get isCameraInitialized =>
       _isInitialized && _cameraController?.value.isInitialized == true;
+
+  /// Update SOAP configuration
+  /// This allows settings changes to take effect without restarting the app
+  Future<void> updateSoapConfig(SoapConfig newConfig) async {
+    await _soapService.updateConfig(newConfig);
+  }
 }

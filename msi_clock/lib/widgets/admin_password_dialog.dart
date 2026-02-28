@@ -4,37 +4,29 @@ import 'dart:io';
 import '../config/app_config.dart';
 import '../config/app_theme.dart';
 import '../main.dart';
-
 class AdminPasswordDialog extends StatefulWidget {
   const AdminPasswordDialog({super.key});
-
   @override
   State<AdminPasswordDialog> createState() => _AdminPasswordDialogState();
 }
-
 class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
   final _passwordController = TextEditingController();
   String? _error;
   bool _isValidating = false;
-
   @override
   void dispose() {
     _passwordController.dispose();
     super.dispose();
   }
-
   Future<void> _validatePassword({bool closeProgram = false}) async {
     if (_isValidating) return; // Prevent multiple validations
-
     setState(() {
       _isValidating = true;
       _error = null;
     });
-
     try {
       final password = _passwordController.text;
       final adminPassword = await AppConfig.getAdminPassword();
-
       if (password == adminPassword) {
         if (closeProgram) {
           // Close the program if password is correct and closeProgram is true
@@ -59,7 +51,6 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
       });
     }
   }
-
   /// Close the application
   Future<void> _closeApplication() async {
     // First try to exit kiosk mode if on Android
@@ -69,14 +60,11 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
         // Give a short delay for kiosk mode to exit
         await Future.delayed(const Duration(milliseconds: 500));
       } catch (e) {
-        print('Error exiting kiosk mode: $e');
       }
     }
-
     // Then close the app
     SystemNavigator.pop();
   }
-
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -155,7 +143,6 @@ class _AdminPasswordDialogState extends State<AdminPasswordDialog> {
     );
   }
 }
-
 Future<bool> showAdminPasswordDialog(BuildContext context) async {
   final result = await showDialog<bool>(
     context: context,
