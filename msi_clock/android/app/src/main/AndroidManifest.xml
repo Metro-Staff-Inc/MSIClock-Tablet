@@ -12,12 +12,12 @@
     <uses-permission android:name="android.permission.REORDER_TASKS" />
     
     <!-- Update system permissions -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Legacy storage permissions only needed for Android 12 and below -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    
-    <!-- Storage permissions for Android 11+ (API 30+) -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     
     <application
         android:requestLegacyExternalStorage="true"

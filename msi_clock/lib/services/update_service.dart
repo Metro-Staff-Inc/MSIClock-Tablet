@@ -140,20 +140,25 @@ class UpdateService {
   /// Download and install the update silently (for automatic updates)
   Future<void> silentDownloadAndInstall(String url) async {
     try {
-      // Request all necessary permissions for Android
-      // Request both storage and install packages permissions
-      await Permission.storage.request();
-      await Permission.manageExternalStorage.request();
+      // Request install packages permission (required for all Android versions)
       await Permission.requestInstallPackages.request();
-      // Check if we have storage permission
-      if (!await Permission.storage.isGranted) {
+
+      // Check if we have install permission
+      if (!await Permission.requestInstallPackages.isGranted) {
         return;
       }
-      // Check for external storage permission (needed for Android 11+)
-      if (!await Permission.manageExternalStorage.isGranted) {
-        // Continue anyway as we'll try to use the app's directory
+
+      // For Android 13+ (API 33+), we don't need storage permissions
+      // when using app-specific storage via getExternalStorageDirectory()
+      // For older versions, try to request storage permission silently
+      if (Platform.isAndroid) {
+        final storageStatus = await Permission.storage.status;
+        if (!storageStatus.isGranted && !storageStatus.isPermanentlyDenied) {
+          await Permission.storage.request();
+        }
       }
-      // Get download directory
+
+      // Get app-specific download directory (no permission needed on Android 13+)
       final directory = await getExternalStorageDirectory();
       if (directory == null) {
         return;
@@ -188,29 +193,26 @@ class UpdateService {
     Function() onSuccess,
   ) async {
     try {
-      // Request all necessary permissions for Android
-      // Request permissions one by one to show clear error messages
-      final storageStatus = await Permission.storage.request();
-      if (!storageStatus.isGranted) {
-        onError('Storage permission is required to download updates');
-        return;
-      }
-      final externalStorageStatus =
-          await Permission.manageExternalStorage.request();
-      if (!externalStorageStatus.isGranted) {
-        // Show a warning but continue
-        onError(
-          'Warning: External storage permission not granted. Update may fail on newer Android versions.',
-        );
-        // Give user time to read the warning
-        await Future.delayed(const Duration(seconds: 2));
-      }
+      // Request install packages permission (required for all Android versions)
       final installStatus = await Permission.requestInstallPackages.request();
       if (!installStatus.isGranted) {
         onError('Permission to install packages is required for updates');
         return;
       }
-      // Get download directory
+
+      // For Android 13+ (API 33+), we don't need storage permissions
+      // when using app-specific storage via getExternalStorageDirectory()
+      // For older versions, request storage permission
+      if (Platform.isAndroid) {
+        // Check Android version - only request storage on Android 12 and below
+        final storageStatus = await Permission.storage.status;
+        if (!storageStatus.isGranted && !storageStatus.isPermanentlyDenied) {
+          // Try to request, but don't fail if denied (Android 13+ will auto-deny)
+          await Permission.storage.request();
+        }
+      }
+
+      // Get app-specific download directory (no permission needed on Android 13+)
       final directory = await getExternalStorageDirectory();
       if (directory == null) {
         onError('Could not access download directory');
