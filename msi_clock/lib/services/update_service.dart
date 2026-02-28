@@ -140,11 +140,12 @@ class UpdateService {
   /// Download and install the update silently (for automatic updates)
   Future<void> silentDownloadAndInstall(String url) async {
     try {
-      // Request install packages permission (required for all Android versions)
-      await Permission.requestInstallPackages.request();
+      // Check install packages permission status
+      // Note: This permission cannot be requested programmatically, must be granted in Settings
+      final installStatus = await Permission.requestInstallPackages.status;
 
-      // Check if we have install permission
-      if (!await Permission.requestInstallPackages.isGranted) {
+      // If not granted, silently fail (user needs to grant in Settings first)
+      if (!installStatus.isGranted) {
         return;
       }
 
@@ -193,11 +194,34 @@ class UpdateService {
     Function() onSuccess,
   ) async {
     try {
-      // Request install packages permission (required for all Android versions)
-      final installStatus = await Permission.requestInstallPackages.request();
+      // Check install packages permission status
+      final installStatus = await Permission.requestInstallPackages.status;
+
       if (!installStatus.isGranted) {
-        onError('Permission to install packages is required for updates');
-        return;
+        // REQUEST_INSTALL_PACKAGES requires opening settings, cannot be requested directly
+        onError(
+          'Please enable "Install unknown apps" permission in Settings.\n\n'
+          'Tap OK to open Settings, then find MSI Clock and enable the permission.',
+        );
+
+        // Open app settings where user can grant the permission
+        final opened = await openAppSettings();
+        if (!opened) {
+          onError(
+            'Could not open Settings. Please enable "Install unknown apps" manually.',
+          );
+          return;
+        }
+
+        // Wait a bit for user to potentially grant permission
+        await Future.delayed(const Duration(seconds: 2));
+
+        // Check again after user returns
+        final newStatus = await Permission.requestInstallPackages.status;
+        if (!newStatus.isGranted) {
+          onError('Install permission is still not granted. Update cancelled.');
+          return;
+        }
       }
 
       // For Android 13+ (API 33+), we don't need storage permissions
