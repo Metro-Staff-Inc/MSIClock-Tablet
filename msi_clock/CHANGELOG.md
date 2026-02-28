@@ -5,6 +5,32 @@ All notable changes to the MSI Clock application will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-02-28
+
+### Fixed
+
+- **CRITICAL:** Fixed camera temporary files not being deleted after each punch, preventing storage accumulation
+- Fixed database cleanup not running automatically - now scheduled daily at 3 AM
+- Improved storage management to prevent tablets from running out of space
+
+### Added
+
+- Comprehensive logging system with two levels (NORMAL and DEBUG)
+- Daily log rotation with automatic cleanup (10-day retention)
+- Cloudflare R2 log upload at 2 AM daily with manual upload option
+- Storage monitoring in hourly battery check-in (free space, total space, percentage)
+- R2 credentials configuration with secure gitignored file
+- Admin screen controls for log level selection and manual upload
+- Detailed documentation for logging system and storage fixes
+
+### Changed
+
+- Enhanced battery check-in API to include storage metrics
+- Updated punch service to immediately delete temporary camera files
+- Modified punch sync service to schedule automatic database cleanup
+- Added crypto package for R2 authentication (HMAC-SHA256)
+- Added disk_space package for storage monitoring
+
 ## [1.0.5] - 2025-11-13
 
 ### Fixed

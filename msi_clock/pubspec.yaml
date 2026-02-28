@@ -1,7 +1,7 @@
 name: msi_clock
 description: "Metro Staff Inc. Time Clock Application"
 publish_to: "none"
-version: 1.0.5+6
+version: 1.0.6+7
 
 environment:
   sdk: ^3.7.2
@@ -23,9 +23,6 @@ dependencies:
   # Network
   http: ^1.2.1
   connectivity_plus: ^5.0.2
-  # Background Tasks
-  # Temporarily removed for testing
-  # workmanager: ^0.5.2
 
   # State Management
   provider: ^6.1.2
@@ -44,7 +41,7 @@ dependencies:
   network_info_plus: ^4.0.0 # For getting device MAC address
   screen_brightness: ^1.0.0 # For controlling screen brightness
   crypto: ^3.0.3 # For HMAC-SHA256 signing (R2 uploads)
-  disk_space: ^0.2.1 # For getting device storage information
+  disk_space_plus: ^0.2.6 # For getting device storage information
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:battery_plus/battery_plus.dart';
-import 'package:disk_space/disk_space.dart';
+import 'package:disk_space_plus/disk_space_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../models/battery_check_in.dart';
@@ -133,8 +133,9 @@ class BatteryMonitorService {
   Future<Map<String, dynamic>> _getStorageMetrics() async {
     try {
       // Get free disk space in MB
-      final freeSpaceMB = await DiskSpace.getFreeDiskSpace;
-      final totalSpaceMB = await DiskSpace.getTotalDiskSpace;
+      final diskSpace = DiskSpacePlus();
+      final freeSpaceMB = await diskSpace.getFreeDiskSpace;
+      final totalSpaceMB = await diskSpace.getTotalDiskSpace;
 
       // Convert MB to GB (MB / 1024)
       final freeSpaceGB = freeSpaceMB != null ? (freeSpaceMB / 1024) : null;
