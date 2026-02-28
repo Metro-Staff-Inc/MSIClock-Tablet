@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-
 class AppTheme {
   // Colors
   static const Color windowBackground = Color(0xFF121212);
@@ -16,7 +15,6 @@ class AppTheme {
   static const Color backspaceKey = Color(0xFFFFD700);
   static const Color clearKey = Color(0xFFFF4040);
   static const Color confirmationKey = mainGreen;
-
   // Theme data
   static ThemeData get darkTheme {
     return ThemeData(
@@ -91,7 +89,6 @@ class AppTheme {
       ),
     );
   }
-
   // Custom button styles
   static ButtonStyle get numberKeyStyle => ElevatedButton.styleFrom(
     backgroundColor: numberKeys,
@@ -99,21 +96,18 @@ class AppTheme {
     minimumSize: const Size(80, 80),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
   );
-
   static ButtonStyle get backspaceKeyStyle => ElevatedButton.styleFrom(
     backgroundColor: backspaceKey,
     foregroundColor: windowBackground,
     minimumSize: const Size(80, 80),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
   );
-
   static ButtonStyle get clearKeyStyle => ElevatedButton.styleFrom(
     backgroundColor: clearKey,
     foregroundColor: defaultText,
     minimumSize: const Size(80, 80),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
   );
-
   static ButtonStyle get confirmationKeyStyle => ElevatedButton.styleFrom(
     backgroundColor: confirmationKey,
     foregroundColor: windowBackground,

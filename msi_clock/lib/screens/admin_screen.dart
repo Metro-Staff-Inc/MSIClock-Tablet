@@ -11,13 +11,14 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../providers/punch_provider.dart';
 import '../services/power_saving_manager.dart';
+import '../services/logger_service.dart';
+import '../services/log_upload_service.dart';
 
 // Method channel for device information
 const platform = MethodChannel('com.example.msi_clock/device_info');
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
-
   @override
   State<AdminScreen> createState() => _AdminScreenState();
 }
@@ -31,33 +32,28 @@ class _AdminScreenState extends State<AdminScreen> {
   final _endpointController = TextEditingController();
   final _newAdminPasswordController = TextEditingController();
   final _confirmAdminPasswordController = TextEditingController();
-
   // Device information
   final _deviceNameController = TextEditingController();
   final _locationController = TextEditingController();
   final _macAddressController = TextEditingController();
+  final _batteryApiEndpointController = TextEditingController();
   bool _isLoadingMacAddress = true;
   bool _isPushingBatteryData = false;
-
   bool _isLoading = true;
-  bool _showPassword = false; // State variable to toggle password visibility
   bool _showNewAdminPassword =
       false; // Toggle for new admin password visibility
   bool _showConfirmAdminPassword =
       false; // Toggle for confirm admin password visibility
   String? _error;
-
   // Camera settings
   bool _isCameraEnabled = true;
   String? _selectedImagePath;
   File? _selectedImageFile;
   final ImagePicker _imagePicker = ImagePicker();
-
   // Power saving settings
   final PowerSavingManager _powerSavingManager = PowerSavingManager();
   final _inactivityThresholdController = TextEditingController();
   final _heartbeatIntervalController = TextEditingController();
-
   // For update functionality
   final UpdateService _updateService = UpdateService();
   String _appVersion = "";
@@ -67,7 +63,11 @@ class _AdminScreenState extends State<AdminScreen> {
   Map<String, dynamic>? _updateInfo;
   bool _downloading = false;
   double _downloadProgress = 0.0;
-
+  // Logging settings
+  final LoggerService _loggerService = LoggerService();
+  final LogUploadService _logUploadService = LogUploadService();
+  String _logLevel = 'normal';
+  bool _uploadingLogs = false;
   @override
   void initState() {
     super.initState();
@@ -76,6 +76,7 @@ class _AdminScreenState extends State<AdminScreen> {
     _loadCameraSettings();
     _loadMacAddress();
     _loadPowerSavingSettings();
+    _loadLoggingSettings();
   }
 
   /// Load the current app version
@@ -85,9 +86,7 @@ class _AdminScreenState extends State<AdminScreen> {
       setState(() {
         _appVersion = packageInfo.version;
       });
-    } catch (e) {
-      print('Error loading app version: $e');
-    }
+    } catch (e) {}
   }
 
   /// Check for app updates
@@ -98,13 +97,10 @@ class _AdminScreenState extends State<AdminScreen> {
       _updateAvailable = false;
       _updateInfo = null;
     });
-
     try {
       final updateInfo = await _updateService.checkForUpdate();
-
       setState(() {
         _checkingForUpdates = false;
-
         if (updateInfo.containsKey('error')) {
           _updateMessage = updateInfo['error'];
         } else if (updateInfo['isUpdateAvailable'] == true) {
@@ -115,14 +111,12 @@ class _AdminScreenState extends State<AdminScreen> {
           _updateMessage = 'You have the latest version.';
         }
       });
-
       // Show update dialog if update is available
       if (_updateAvailable && _updateInfo != null) {
         final shouldUpdate = await _updateService.showUpdateDialog(
           context,
           _updateInfo!,
         );
-
         if (shouldUpdate && _updateInfo!['downloadUrl'] != null) {
           _downloadAndInstallUpdate(_updateInfo!['downloadUrl']);
         }
@@ -141,7 +135,6 @@ class _AdminScreenState extends State<AdminScreen> {
       _downloading = true;
       _downloadProgress = 0;
     });
-
     _updateService.downloadAndInstallUpdate(
       url,
       (progress) {
@@ -184,6 +177,7 @@ class _AdminScreenState extends State<AdminScreen> {
     _deviceNameController.dispose();
     _locationController.dispose();
     _macAddressController.dispose();
+    _batteryApiEndpointController.dispose();
     _inactivityThresholdController.dispose();
     _heartbeatIntervalController.dispose();
     super.dispose();
@@ -194,7 +188,6 @@ class _AdminScreenState extends State<AdminScreen> {
     try {
       _isCameraEnabled = await AppConfig.isCameraEnabled();
       _selectedImagePath = await AppConfig.getSelectedImagePath();
-
       if (_selectedImagePath != null) {
         _selectedImageFile = File(_selectedImagePath!);
         if (!await _selectedImageFile!.exists()) {
@@ -202,7 +195,6 @@ class _AdminScreenState extends State<AdminScreen> {
           _selectedImagePath = null;
         }
       }
-
       setState(() {});
     } catch (e) {
       // Default to camera enabled if there's an error
@@ -220,7 +212,6 @@ class _AdminScreenState extends State<AdminScreen> {
       final XFile? pickedFile = await _imagePicker.pickImage(
         source: ImageSource.gallery,
       );
-
       if (pickedFile != null) {
         setState(() {
           _selectedImagePath = pickedFile.path;
@@ -237,10 +228,8 @@ class _AdminScreenState extends State<AdminScreen> {
     setState(() {
       _isLoadingMacAddress = true;
     });
-
     try {
       String macAddress;
-
       // Try to get MAC address through platform-specific code
       try {
         // Call native method to get MAC address
@@ -248,12 +237,10 @@ class _AdminScreenState extends State<AdminScreen> {
       } catch (methodError) {
         macAddress = 'Not available';
       }
-
       // If we couldn't get the MAC address, use a placeholder
       if (macAddress.isEmpty) {
         macAddress = 'Unknown';
       }
-
       setState(() {
         _macAddressController.text = macAddress;
         _isLoadingMacAddress = false;
@@ -266,19 +253,65 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  /// Load logging settings
+  Future<void> _loadLoggingSettings() async {
+    try {
+      final level = await _settings.getLogLevel();
+      setState(() {
+        _logLevel = level;
+      });
+    } catch (e) {
+      setState(() {
+        _logLevel = 'normal';
+      });
+    }
+  }
+
+  /// Manually upload logs to R2
+  Future<void> _uploadLogs() async {
+    setState(() {
+      _uploadingLogs = true;
+    });
+    try {
+      final success = await _logUploadService.manualUpload();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? 'Logs uploaded successfully'
+                  : 'Failed to upload logs. Check R2 configuration.',
+            ),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading logs: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _uploadingLogs = false;
+      });
+    }
+  }
+
   /// Manually push battery data to the API
   Future<void> _pushBatteryData() async {
     setState(() {
       _isPushingBatteryData = true;
     });
-
     try {
       // Get the battery monitor service
       final batteryMonitorService = BatteryMonitorService();
-
       // Trigger a manual report
       await batteryMonitorService.triggerManualReport();
-
       // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -310,28 +343,29 @@ class _AdminScreenState extends State<AdminScreen> {
       setState(() => _isLoading = true);
       final settings = await _settings.loadSettings();
       final soapSettings = settings['soap'] as Map<String, dynamic>;
-
       // Get the endpoint from settings or use default
       String endpoint = 'https://msiwebtrax.com';
       if (settings.containsKey('endpoint') && settings['endpoint'] is String) {
         endpoint = settings['endpoint'] as String;
       }
-
       // Load device information
       if (settings.containsKey('battery') &&
           settings['battery'] is Map<String, dynamic>) {
         final batterySettings = settings['battery'] as Map<String, dynamic>;
-
         _deviceNameController.text =
             batterySettings['deviceName'] as String? ?? 'MSI-Tablet';
         _locationController.text =
             batterySettings['location'] as String? ?? 'Unknown';
+        _batteryApiEndpointController.text =
+            batterySettings['apiEndpoint'] as String? ??
+            'https://battery-monitor-api.onrender.com';
       } else {
         // Default values
         _deviceNameController.text = 'MSI-Tablet';
         _locationController.text = 'Unknown';
+        _batteryApiEndpointController.text =
+            'https://battery-monitor-api.onrender.com';
       }
-
       setState(() {
         _usernameController.text = soapSettings['username'] as String;
         _passwordController.text = soapSettings['password'] as String;
@@ -348,32 +382,27 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Future<void> _saveSettings() async {
     if (!_formKey.currentState!.validate()) return;
-
     try {
       setState(() => _isLoading = true);
-
       // Update SOAP credentials
       await AppConfig.updateSoapCredentials(
         username: _usernameController.text,
         password: _passwordController.text,
         clientId: _clientIdController.text,
       );
-
       // Update endpoint
       await _settings.updateSoapEndpoint(_endpointController.text);
-
       // Update camera settings
       await AppConfig.updateCameraSettings(
         isEnabled: _isCameraEnabled,
         selectedImagePath: _selectedImagePath,
       );
-
-      // Update device information
+      // Update device information including battery API endpoint
       await _settings.updateBatterySettings(
+        apiEndpoint: _batteryApiEndpointController.text,
         deviceName: _deviceNameController.text,
         location: _locationController.text,
       );
-
       // Update power saving settings
       await _powerSavingManager.saveSettings(
         inactivityThresholdMinutes:
@@ -381,7 +410,11 @@ class _AdminScreenState extends State<AdminScreen> {
         heartbeatIntervalSeconds:
             int.tryParse(_heartbeatIntervalController.text) ?? 30,
       );
-
+      // Update logging level
+      await _settings.updateLogLevel(_logLevel);
+      await _loggerService.setLogLevel(
+        _logLevel == 'debug' ? LogLevel.debug : LogLevel.normal,
+      );
       // Update admin password if provided
       if (_newAdminPasswordController.text.isNotEmpty) {
         // Validate that passwords match
@@ -393,29 +426,27 @@ class _AdminScreenState extends State<AdminScreen> {
           });
           return;
         }
-
         // Update the admin password
         await _settings.updateAdminPassword(_newAdminPasswordController.text);
-
         // Clear the admin password cache to ensure the new password is used immediately
         AppConfig.clearAdminPasswordCache();
-
         // Clear the password fields after successful update
         setState(() {
           _newAdminPasswordController.clear();
           _confirmAdminPasswordController.clear();
         });
       }
-
-      // Update the PunchProvider with new camera settings
+      // Update the PunchProvider with new settings
       if (mounted) {
         final provider = Provider.of<PunchProvider>(context, listen: false);
+        // Update camera settings
         await provider.updateCameraSettings(
           isEnabled: _isCameraEnabled,
           selectedImagePath: _selectedImagePath,
         );
+        // Reload SOAP configuration to apply new settings immediately
+        await provider.reloadSoapConfig();
       }
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Settings saved successfully')),
@@ -458,7 +489,6 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                           ),
                         ),
-
                       // Device Information Section
                       Text(
                         'Device Information',
@@ -469,7 +499,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       // Device Name
                       TextFormField(
                         controller: _deviceNameController,
@@ -486,7 +515,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-
                       // Location
                       TextFormField(
                         controller: _locationController,
@@ -503,7 +531,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-
                       // MAC Address (read-only)
                       TextFormField(
                         controller: _macAddressController,
@@ -533,7 +560,16 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
+                      // Battery API Endpoint
+                      TextFormField(
+                        controller: _batteryApiEndpointController,
+                        decoration: InputDecoration(
+                          labelText: 'Battery API Endpoint',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: 'https://battery-monitor-api.onrender.com',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       // Push Battery Data Button
                       ElevatedButton.icon(
                         icon:
@@ -565,9 +601,91 @@ class _AdminScreenState extends State<AdminScreen> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 32),
-
+                      // SOAP Configuration Section
+                      Text(
+                        'SOAP Configuration',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.defaultText,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Username
+                      TextFormField(
+                        controller: _usernameController,
+                        decoration: InputDecoration(
+                          labelText: 'Username',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter username';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      // Password (no longer obscured)
+                      TextFormField(
+                        controller: _passwordController,
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter password';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      // Client ID
+                      TextFormField(
+                        controller: _clientIdController,
+                        decoration: InputDecoration(
+                          labelText: 'Client ID',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter client ID';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      // Endpoint URL
+                      TextFormField(
+                        controller: _endpointController,
+                        decoration: InputDecoration(
+                          labelText: 'SOAP Endpoint URL',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: 'https://msiwebtrax.com',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter endpoint URL';
+                          }
+                          if (!value.startsWith('http://') &&
+                              !value.startsWith('https://')) {
+                            return 'URL must start with http:// or https://';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'If you are experiencing connection issues, try changing the endpoint URL.',
+                        style: TextStyle(
+                          color: AppTheme.defaultText.withOpacity(0.7),
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
                       // Power Saving Settings Section
                       Text(
                         'Power Saving Settings',
@@ -578,7 +696,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       // Inactivity Threshold
                       TextFormField(
                         controller: _inactivityThresholdController,
@@ -607,7 +724,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-
                       // SOAP Heartbeat Interval
                       TextFormField(
                         controller: _heartbeatIntervalController,
@@ -635,114 +751,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           return null;
                         },
                       ),
-
                       const SizedBox(height: 32),
-
-                      // SOAP Settings Section
-                      Text(
-                        'SOAP Configuration',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.defaultText,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Username
-                      TextFormField(
-                        controller: _usernameController,
-                        decoration: InputDecoration(
-                          labelText: 'Username',
-                          labelStyle: TextStyle(color: AppTheme.defaultText),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter username';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Password with visibility toggle
-                      TextFormField(
-                        controller: _passwordController,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          labelStyle: TextStyle(color: AppTheme.defaultText),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _showPassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                              color: AppTheme.defaultText.withOpacity(0.7),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _showPassword = !_showPassword;
-                              });
-                            },
-                          ),
-                        ),
-                        obscureText: !_showPassword, // Toggle based on state
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter password';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Client ID
-                      TextFormField(
-                        controller: _clientIdController,
-                        decoration: InputDecoration(
-                          labelText: 'Client ID',
-                          labelStyle: TextStyle(color: AppTheme.defaultText),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter client ID';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Endpoint URL
-                      TextFormField(
-                        controller: _endpointController,
-                        decoration: InputDecoration(
-                          labelText: 'SOAP Endpoint URL',
-                          labelStyle: TextStyle(color: AppTheme.defaultText),
-                          hintText: 'https://msiwebtrax.com',
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter endpoint URL';
-                          }
-                          if (!value.startsWith('http://') &&
-                              !value.startsWith('https://')) {
-                            return 'URL must start with http:// or https://';
-                          }
-                          return null;
-                        },
-                      ),
-
-                      const SizedBox(height: 8),
-                      Text(
-                        'If you are experiencing connection issues, try changing the endpoint URL.',
-                        style: TextStyle(
-                          color: AppTheme.defaultText.withOpacity(0.7),
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-
-                      const SizedBox(height: 32),
-
                       // Admin Password Section
                       Text(
                         'Admin Password',
@@ -753,7 +762,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       // New Admin Password
                       TextFormField(
                         controller: _newAdminPasswordController,
@@ -777,7 +785,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         obscureText: !_showNewAdminPassword,
                       ),
                       const SizedBox(height: 16),
-
                       // Confirm Admin Password
                       TextFormField(
                         controller: _confirmAdminPasswordController,
@@ -810,7 +817,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         },
                       ),
                       const SizedBox(height: 32),
-
                       // Camera Settings Section
                       Text(
                         'Camera Settings',
@@ -821,7 +827,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       // Camera Enable/Disable Toggle
                       Row(
                         children: [
@@ -844,7 +849,6 @@ class _AdminScreenState extends State<AdminScreen> {
                           ),
                         ],
                       ),
-
                       // Image selection (only visible when camera is disabled)
                       if (!_isCameraEnabled) ...[
                         const SizedBox(height: 16),
@@ -895,7 +899,6 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                           ],
                         ),
-
                         // Image preview
                         if (_selectedImageFile != null) ...[
                           const SizedBox(height: 16),
@@ -928,9 +931,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           ),
                         ],
                       ],
-
                       const SizedBox(height: 32),
-
                       // Version and Updates Section
                       Text(
                         'App Version and Updates',
@@ -941,7 +942,6 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       // Current version display
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -990,7 +990,6 @@ class _AdminScreenState extends State<AdminScreen> {
                           ],
                         ),
                       ),
-
                       // Update status message
                       if (_updateMessage != null)
                         Padding(
@@ -1006,7 +1005,6 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                           ),
                         ),
-
                       // Download progress indicator
                       if (_downloading)
                         Padding(
@@ -1029,9 +1027,154 @@ class _AdminScreenState extends State<AdminScreen> {
                             ],
                           ),
                         ),
-
                       const SizedBox(height: 32),
-
+                      // Logging Settings Section
+                      Text(
+                        'Logging Settings',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: AppTheme.defaultText,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.frontFrames,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Log Level',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: RadioListTile<String>(
+                                    title: Text(
+                                      'NORMAL',
+                                      style: TextStyle(
+                                        color: AppTheme.defaultText,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      'Punch data only',
+                                      style: TextStyle(
+                                        color: AppTheme.defaultText.withOpacity(
+                                          0.7,
+                                        ),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    value: 'normal',
+                                    groupValue: _logLevel,
+                                    activeColor: AppTheme.mainGreen,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _logLevel = value!;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                Expanded(
+                                  child: RadioListTile<String>(
+                                    title: Text(
+                                      'DEBUG',
+                                      style: TextStyle(
+                                        color: AppTheme.defaultText,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      'All logging',
+                                      style: TextStyle(
+                                        color: AppTheme.defaultText.withOpacity(
+                                          0.7,
+                                        ),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    value: 'debug',
+                                    groupValue: _logLevel,
+                                    activeColor: AppTheme.mainGreen,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _logLevel = value!;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Divider(
+                              color: AppTheme.defaultText.withOpacity(0.3),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Log Management',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '• Logs are stored for 10 days\n'
+                              '• Each day creates a new log file\n'
+                              '• Logs auto-upload to R2 at 2 AM daily\n'
+                              '• Log directory: ${_loggerService.logDirectoryPath ?? "Not initialized"}',
+                              style: TextStyle(
+                                color: AppTheme.defaultText.withOpacity(0.8),
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              icon:
+                                  _uploadingLogs
+                                      ? SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
+                                        ),
+                                      )
+                                      : const Icon(
+                                        Icons.cloud_upload,
+                                        size: 20,
+                                      ),
+                              label: Text(
+                                _uploadingLogs
+                                    ? 'Uploading...'
+                                    : 'Upload Yesterday\'s Logs Now',
+                              ),
+                              onPressed: _uploadingLogs ? null : _uploadLogs,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.mainGreen,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
                       // Save Button
                       ElevatedButton(
                         onPressed: _saveSettings,
@@ -1051,9 +1194,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 24),
-
                       // Close App Button
                       ElevatedButton(
                         onPressed: () {
@@ -1087,21 +1228,23 @@ class _AdminScreenState extends State<AdminScreen> {
                                   ),
                                   TextButton(
                                     onPressed: () async {
+                                      // Close dialog first
+                                      Navigator.of(dialogContext).pop();
                                       // First try to exit kiosk mode if on Android
                                       if (Platform.isAndroid) {
                                         try {
-                                          await platform.invokeMethod(
+                                          const kioskPlatform = MethodChannel(
+                                            'com.example.msi_clock/kiosk',
+                                          );
+                                          await kioskPlatform.invokeMethod(
                                             'exitKioskMode',
                                           );
                                           // Give a short delay for kiosk mode to exit
                                           await Future.delayed(
                                             const Duration(milliseconds: 500),
                                           );
-                                        } catch (e) {
-                                          print('Error exiting kiosk mode: $e');
-                                        }
+                                        } catch (e) {}
                                       }
-
                                       // Then close the app
                                       SystemNavigator.pop();
                                     },

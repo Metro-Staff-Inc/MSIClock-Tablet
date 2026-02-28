@@ -12,42 +12,42 @@ import 'widgets/admin_password_dialog.dart';
 import 'services/update_service.dart';
 import 'services/battery_monitor_service.dart';
 import 'services/power_saving_manager.dart';
+import 'services/logger_service.dart';
+import 'services/log_upload_service.dart';
 
 // Method channel for native communication
 const platform = MethodChannel('com.example.msi_clock/kiosk');
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   // Set preferred orientations to landscape
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
-
   // Enable kiosk mode (fullscreen, no system UI)
   SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.immersiveSticky,
     overlays: [],
   );
-
   // Prevent the app from being closed with back button
   SystemChannels.platform.invokeMethod('SystemNavigator.preventPopOnBackPress');
-
   // Keep the screen on at all times
   WakelockPlus.enable();
-
+  // Initialize logging service
+  final loggerService = LoggerService();
+  await loggerService.initialize();
+  await loggerService.logInfo('Application starting...');
+  // Initialize log upload service
+  final logUploadService = LogUploadService();
+  await logUploadService.initialize();
   // Initialize automatic update scheduler
   final updateService = UpdateService();
   await updateService.scheduleUpdateCheck();
-
   // Initialize battery monitoring service
   final batteryMonitorService = BatteryMonitorService();
   await batteryMonitorService.initialize();
-
   // Initialize SOAP configuration
   final soapConfig = await AppConfig.getSoapConfig();
-
   runApp(
     ChangeNotifierProvider(
       create: (_) => PunchProvider(soapConfig),
@@ -58,7 +58,6 @@ void main() async {
 
 class MSIClockApp extends StatelessWidget {
   const MSIClockApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -73,7 +72,6 @@ class MSIClockApp extends StatelessWidget {
 // Screen to handle initialization of connections before showing the main clock screen
 class InitializationScreen extends StatefulWidget {
   const InitializationScreen({super.key});
-
   @override
   State<InitializationScreen> createState() => _InitializationScreenState();
 }
@@ -83,7 +81,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
   String _statusMessage = 'Initializing...';
   int _retryCount = 0;
   final int _maxRetries = 3;
-
   @override
   void initState() {
     super.initState();
@@ -93,11 +90,9 @@ class _InitializationScreenState extends State<InitializationScreen> {
 
   Future<void> _initializeApp() async {
     final provider = context.read<PunchProvider>();
-
     setState(() {
       _statusMessage = 'Checking server connection...';
     });
-
     // Try to establish SOAP connection with retries
     bool isConnected = false;
     for (int i = 0; i < _maxRetries; i++) {
@@ -121,12 +116,10 @@ class _InitializationScreenState extends State<InitializationScreen> {
         }
       }
     }
-
     // Even if connection failed after retries, continue to camera initialization
     setState(() {
       _statusMessage = 'Initializing camera...';
     });
-
     // Try to initialize camera with retries
     bool isCameraInitialized = false;
     for (int i = 0; i < _maxRetries; i++) {
@@ -149,13 +142,11 @@ class _InitializationScreenState extends State<InitializationScreen> {
         }
       }
     }
-
     // Proceed to main screen regardless of initialization results
     // The main screen will handle offline mode if needed
     setState(() {
       _isInitializing = false;
     });
-
     // Navigate to the main clock screen
     if (mounted) {
       Navigator.of(context).pushReplacement(
@@ -207,7 +198,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
 
 class ClockScreen extends StatefulWidget {
   const ClockScreen({super.key});
-
   @override
   State<ClockScreen> createState() => _ClockScreenState();
 }
@@ -216,11 +206,9 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   final TextEditingController _idController = TextEditingController();
   bool _isKeypadDisabled = false;
   Timer? _statusMessageTimer;
-
   // Power saving manager
   final PowerSavingManager _powerSavingManager = PowerSavingManager();
   bool _isSleepModeActive = false;
-
   @override
   void initState() {
     super.initState();
@@ -232,9 +220,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
           setState(() {
             _isSleepModeActive = true;
           });
-          print(
-            'SLEEP DEBUG: Sleep mode activated in UI at ${DateTime.now().toIso8601String()}',
-          );
         }
       },
       onSleepModeDeactivated: () {
@@ -242,19 +227,11 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
           setState(() {
             _isSleepModeActive = false;
           });
-          print(
-            'SLEEP DEBUG: Sleep mode deactivated in UI at ${DateTime.now().toIso8601String()}',
-          );
-
           // Immediately check SOAP connectivity when coming out of sleep mode
-          print(
-            'SLEEP DEBUG: Triggering SOAP connectivity check after sleep mode deactivation',
-          );
           _checkSoapConnectivityAfterSleep();
         }
       },
     );
-
     // Initialize camera and check connectivity when screen loads
     Future.microtask(() async {
       final provider = context.read<PunchProvider>();
@@ -288,17 +265,9 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   // Register user interaction to reset sleep mode timer
   Future<void> _registerUserInteraction() async {
     final wasSleepModeActive = _powerSavingManager.isSleepModeActive;
-    print(
-      'USER DEBUG: User interaction detected, sleep mode was: ${wasSleepModeActive ? "ACTIVE" : "INACTIVE"}',
-    );
-
     await _powerSavingManager.registerUserInteraction();
-
     // If we were in sleep mode and now we're not, check connectivity immediately
     if (wasSleepModeActive) {
-      print(
-        'USER DEBUG: Device was in sleep mode, checking connectivity immediately',
-      );
       await _checkSoapConnectivityAfterSleep();
     }
   }
@@ -306,21 +275,12 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   // Prepare SOAP connection after coming out of sleep mode
   // This ensures the connection is ready for an immediate punch
   Future<void> _checkSoapConnectivityAfterSleep() async {
-    print(
-      'SOAP DEBUG: Preparing SOAP connection for punch after sleep mode at ${DateTime.now().toIso8601String()}',
-    );
     try {
       // Get the SOAP service directly through the punch provider
       final provider = context.read<PunchProvider>();
-
       // Force a new connection and initialize everything needed for a punch
-      print('SOAP DEBUG: Forcing connection reset to prepare for punch');
       await provider.prepareForPunch();
-
-      print('SOAP DEBUG: SOAP connection prepared for punch operation');
-    } catch (e) {
-      print('SOAP DEBUG: Error preparing SOAP connection: $e');
-    }
+    } catch (e) {}
   }
 
   Future<void> _handlePunch() async {
@@ -328,22 +288,17 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     _registerUserInteraction();
     final employeeId = _idController.text;
     if (employeeId.isEmpty) return;
-
     // Debug: Log start time
     final startTime = DateTime.now();
-
     // Disable keypad
     setState(() {
       _isKeypadDisabled = true;
     });
-
     // Cancel any existing timer
     _statusMessageTimer?.cancel();
-
     // Record the punch and await the SOAP response
     _idController.clear();
     await context.read<PunchProvider>().recordPunch(employeeId);
-
     // Now that the SOAP response has been received, set a timer to display the status message
     // for 2 seconds before re-enabling the keypad and clearing the message
     _statusMessageTimer = Timer(const Duration(seconds: 2), () {
@@ -378,13 +333,11 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
 
   // Employee name display
   final String _employeeName = '';
-
   // Method to build a number key for the keypad with visual feedback
   Widget _buildNumberKey(String number) {
     // Consistent size for all buttons
     const double buttonSize = 92.0; // 15% larger than original 80x80
     const double padding = 4.0;
-
     return Padding(
       padding: const EdgeInsets.all(padding),
       child: Material(
@@ -403,10 +356,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                   : () async {
                     // Add haptic feedback
                     HapticFeedback.lightImpact();
-
                     // Register user interaction
                     await _registerUserInteraction();
-
                     // Allow up to 9 digits for ID
                     if (_idController.text.length < 9) {
                       setState(() {
@@ -441,7 +392,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   Widget _buildNumericKeypad() {
     // Consistent spacing
     const double rowSpacing = 8.0;
-
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -471,10 +421,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                           : () async {
                             // Add haptic feedback
                             HapticFeedback.mediumImpact();
-
                             // Register user interaction
                             await _registerUserInteraction();
-
                             // Remove last character
                             if (_idController.text.isNotEmpty) {
                               setState(() {
@@ -507,7 +455,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
           ],
         ),
         SizedBox(height: rowSpacing),
-
         // Row 2: 4, 5, 6, Clear
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -534,10 +481,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                           : () async {
                             // Add haptic feedback
                             HapticFeedback.mediumImpact();
-
                             // Register user interaction
                             await _registerUserInteraction();
-
                             // Clear the text field
                             setState(() {
                               _idController.clear();
@@ -564,7 +509,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
           ],
         ),
         SizedBox(height: rowSpacing),
-
         // Create a row that contains two rows (for 7,8,9 and 0) and the submit button
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -593,7 +537,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                 ),
               ],
             ),
-
             // Submit button spanning 2 rows
             Padding(
               padding: const EdgeInsets.all(4.0),
@@ -614,10 +557,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                               ? () async {
                                 // Add haptic feedback
                                 HapticFeedback.heavyImpact();
-
                                 // Register user interaction
                                 await _registerUserInteraction();
-
                                 // Submit the ID
                                 await _handlePunch();
                               }
@@ -676,7 +617,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                 children: [
                   // Small spacer column (replacing the online indicator)
                   SizedBox(width: MediaQuery.of(context).size.width * 0.05),
-
                   // Column 2: Employee ID input and keypad
                   SizedBox(
                     width: MediaQuery.of(context).size.width * 0.45,
@@ -690,7 +630,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                             height: 100, // Larger logo
                           ),
                         ),
-
                         // Employee ID Input
                         Padding(
                           padding: const EdgeInsets.all(16.0),
@@ -729,7 +668,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                             ),
                           ),
                         ),
-
                         // Employee Name Display - Get name from provider's lastPunch
                         if (provider.lastPunch != null)
                           Padding(
@@ -758,13 +696,11 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                               ),
                             ),
                           ),
-
                         // Numeric Keypad
                         Expanded(child: _buildNumericKeypad()),
                       ],
                     ),
                   ),
-
                   // Column 3: Date/Time, Camera, Status
                   SizedBox(
                     width: MediaQuery.of(context).size.width * 0.5,
@@ -817,7 +753,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                                       ),
                                     ),
                                   ),
-
                                   // Spanish Button
                                   Container(
                                     decoration: BoxDecoration(
@@ -857,7 +792,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                                   ),
                                 ],
                               ),
-
                               // Admin Button - right justified
                               Container(
                                 decoration: BoxDecoration(
@@ -879,7 +813,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                             ],
                           ),
                         ),
-
                         // Date and Time Display - Centered in column 2
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -952,7 +885,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                             ),
                           ),
                         ),
-
                         // Camera Preview with proper aspect ratio
                         Padding(
                           padding: const EdgeInsets.symmetric(
@@ -967,7 +899,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                               // Calculate width based on 4:3 aspect ratio (width = height * 4/3)
                               final containerWidth =
                                   containerHeight * (4.0 / 3.0);
-
                               return Center(
                                 child: Container(
                                   height: containerHeight, // Fixed height
@@ -994,7 +925,6 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                             },
                           ),
                         ),
-
                         // Status Messages - Transparent background, IBM Plex Sans Medium font
                         Padding(
                           padding: const EdgeInsets.symmetric(

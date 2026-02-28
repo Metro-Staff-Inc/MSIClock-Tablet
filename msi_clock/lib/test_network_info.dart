@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
-
 void main() {
   runApp(const MyApp());
 }
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -17,24 +14,19 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
 class NetworkInfoTestScreen extends StatefulWidget {
   const NetworkInfoTestScreen({super.key});
-
   @override
   State<NetworkInfoTestScreen> createState() => _NetworkInfoTestScreenState();
 }
-
 class _NetworkInfoTestScreenState extends State<NetworkInfoTestScreen> {
   final NetworkInfo _networkInfo = NetworkInfo();
   String _networkInfoText = 'Loading...';
-
   @override
   void initState() {
     super.initState();
     _loadNetworkInfo();
   }
-
   Future<void> _loadNetworkInfo() async {
     try {
       // Get all available methods from NetworkInfo
@@ -45,7 +37,6 @@ class _NetworkInfoTestScreenState extends State<NetworkInfoTestScreen> {
       final wifiSubmask = await _networkInfo.getWifiSubmask();
       final wifiGatewayIP = await _networkInfo.getWifiGatewayIP();
       final wifiBroadcast = await _networkInfo.getWifiBroadcast();
-
       // Try to get MAC address if available
       String macAddress = "Not available";
       try {
@@ -55,7 +46,6 @@ class _NetworkInfoTestScreenState extends State<NetworkInfoTestScreen> {
       } catch (e) {
         macAddress = "Error getting methods: $e";
       }
-
       setState(() {
         _networkInfoText = '''
 Network Info:
@@ -75,7 +65,6 @@ Network Info:
       });
     }
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

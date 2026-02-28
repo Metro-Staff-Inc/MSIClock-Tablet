@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-
 class Punch {
   final String employeeId;
   final DateTime timestamp;
@@ -10,7 +9,6 @@ class Punch {
   final String? punchType;
   final int? exception;
   final String? weeklyHours;
-
   const Punch({
     required this.employeeId,
     required this.timestamp,
@@ -22,7 +20,6 @@ class Punch {
     this.exception,
     this.weeklyHours,
   });
-
   factory Punch.fromResponse(
     String employeeId,
     DateTime timestamp,
@@ -41,7 +38,6 @@ class Punch {
       weeklyHours: response['weeklyHours'],
     );
   }
-
   Map<String, dynamic> toJson() {
     return {
       'employeeId': employeeId,
@@ -54,7 +50,6 @@ class Punch {
       'weeklyHours': weeklyHours,
     };
   }
-
   factory Punch.fromJson(Map<String, dynamic> json) {
     return Punch(
       employeeId: json['employeeId'] as String,
@@ -67,21 +62,17 @@ class Punch {
       weeklyHours: json['weeklyHours'] as String?,
     );
   }
-
   String get displayName {
     if (firstName != null && lastName != null) {
       return '$firstName $lastName';
     }
     return 'Employee $employeeId';
   }
-
   bool get hasError => exception != null && exception! > 0;
-
   String getStatusMessage(String language) {
     if (!isSynced) {
       return language == 'en' ? 'Stored offline' : 'Almacenado sin conexión';
     }
-
     if (hasError) {
       switch (exception) {
         case 1:
@@ -98,9 +89,7 @@ class Punch {
           return language == 'en' ? 'Invalid ID' : 'ID Inválido';
       }
     }
-
     // Weekly hours are no longer displayed in the status message
-
     if (punchType?.toLowerCase() == 'checkin') {
       return language == 'en' ? 'Welcome!' : '¡Bienvenido!';
     } else {

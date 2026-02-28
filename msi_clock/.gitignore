@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Sensitive credentials - DO NOT COMMIT
+lib/config/r2_credentials.dart

@@ -14,9 +14,7 @@ class PunchProvider extends ChangeNotifier {
   bool _isCameraEnabled = true;
   String? _selectedImagePath;
   File? _selectedImageFile;
-
   PunchProvider(SoapConfig config) : _punchService = PunchService(config);
-
   String get currentLanguage => _currentLanguage;
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -28,7 +26,6 @@ class PunchProvider extends ChangeNotifier {
   bool get isCameraEnabled => _isCameraEnabled;
   String? get selectedImagePath => _selectedImagePath;
   File? get selectedImageFile => _selectedImageFile;
-
   void toggleLanguage() {
     _currentLanguage = _currentLanguage == 'en' ? 'es' : 'en';
     notifyListeners();
@@ -57,29 +54,19 @@ class PunchProvider extends ChangeNotifier {
   /// Prepares the SOAP connection for an immediate punch operation
   /// This is especially useful after coming out of sleep mode
   Future<bool> prepareForPunch() async {
-    print(
-      'PUNCH DEBUG: Preparing for punch operation at ${DateTime.now().toIso8601String()}',
-    );
     try {
       // First, force a reconnection to ensure we have a fresh connection
       final isConnected = await checkConnectivity(forceReconnect: true);
-
       if (!isConnected) {
-        print('PUNCH DEBUG: First connection attempt failed, retrying');
         // If first attempt failed, try again after a short delay
         await Future.delayed(const Duration(seconds: 1));
         final retryResult = await checkConnectivity(forceReconnect: true);
-
         if (!retryResult) {
-          print('PUNCH DEBUG: Second connection attempt also failed');
           return false;
         }
       }
-
-      print('PUNCH DEBUG: Connection established, ready for punch operation');
       return true;
     } catch (e) {
-      print('PUNCH DEBUG: Error preparing for punch: $e');
       return false;
     }
   }
@@ -89,7 +76,6 @@ class PunchProvider extends ChangeNotifier {
     try {
       _isCameraEnabled = await AppConfig.isCameraEnabled();
       _selectedImagePath = await AppConfig.getSelectedImagePath();
-
       // Load the selected image file if path is available
       if (_selectedImagePath != null) {
         _selectedImageFile = File(_selectedImagePath!);
@@ -99,7 +85,6 @@ class PunchProvider extends ChangeNotifier {
       } else {
         _selectedImageFile = null;
       }
-
       notifyListeners();
     } catch (e) {
       // Default to camera enabled if there's an error
@@ -119,9 +104,7 @@ class PunchProvider extends ChangeNotifier {
         isEnabled: isEnabled,
         selectedImagePath: selectedImagePath,
       );
-
       _isCameraEnabled = isEnabled;
-
       if (selectedImagePath != null) {
         _selectedImagePath = selectedImagePath;
         _selectedImageFile = File(selectedImagePath);
@@ -129,7 +112,6 @@ class PunchProvider extends ChangeNotifier {
           _selectedImageFile = null;
         }
       }
-
       notifyListeners();
     } catch (e) {
       _error =
@@ -143,15 +125,12 @@ class PunchProvider extends ChangeNotifier {
   Future<void> initializeCamera({bool forceReinit = false}) async {
     try {
       _error = null;
-
       // Load camera settings first
       await loadCameraSettings();
-
       // Only initialize camera if it's enabled
       if (_isCameraEnabled) {
         await _punchService.initializeCamera(forceReinit: forceReinit);
       } else {}
-
       notifyListeners();
     } catch (e) {
       // Use a concise error message to prevent layout issues
@@ -184,41 +163,34 @@ class PunchProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
-
     try {
       _isLoading = true;
       _error = null;
       notifyListeners();
-
       // First, ensure we have connectivity and the connection is ready for a punch
-      print(
-        'PUNCH DEBUG: Preparing connection for punch at ${DateTime.now().toIso8601String()}',
-      );
       final connectionReady = await prepareForPunch();
-
       if (!connectionReady) {
-        print(
-          'PUNCH DEBUG: Connection preparation failed, punch may not reach server',
-        );
-      } else {
-        print('PUNCH DEBUG: Connection ready, proceeding with punch');
-      }
-
+      } else {}
       // Record the punch
-      print(
-        'PUNCH DEBUG: Recording punch for employee $employeeId at ${DateTime.now().toIso8601String()}',
-      );
-      _lastPunch = await _punchService.recordPunch(
+      final punch = await _punchService.recordPunch(
         employeeId,
         isCameraEnabled: _isCameraEnabled,
       );
-      print(
-        'PUNCH DEBUG: Punch recorded with result: ${_lastPunch?.isSynced == true ? "SYNCED" : "NOT SYNCED"}',
-      );
-
-      // Don't set error message when punch has exception
-      // The lastPunch object already contains the status message
-      // and will be displayed in the UI
+      // Set the last punch to display the result to the user
+      _lastPunch = punch;
+      if (punch != null) {
+        // Check if the punch has an exception
+        if (punch.hasError) {
+          // The punch object contains the exception information
+          // which will be displayed in the UI via getStatusMessage()
+        }
+      } else {
+        // Set an error message if no punch was returned
+        _error =
+            _currentLanguage == 'en'
+                ? 'Failed to record punch'
+                : 'Error al registrar marcación';
+      }
     } catch (e) {
       // Truncate error message to prevent layout issues
       final errorString = e.toString();
@@ -226,8 +198,6 @@ class PunchProvider extends ChangeNotifier {
           errorString.length > 50
               ? '${errorString.substring(0, 47)}...'
               : errorString;
-
-      print('PUNCH DEBUG: Error recording punch: $truncatedError');
       _error =
           _currentLanguage == 'en'
               ? 'Failed to record punch'
@@ -247,5 +217,23 @@ class PunchProvider extends ChangeNotifier {
   void clearLastPunch() {
     _lastPunch = null;
     notifyListeners();
+  }
+
+  /// Reload SOAP configuration from settings
+  /// This allows settings changes to take effect without restarting the app
+  Future<void> reloadSoapConfig() async {
+    try {
+      final newConfig = await AppConfig.getSoapConfig();
+      await _punchService.updateSoapConfig(newConfig);
+      // Force a reconnection with the new configuration
+      await checkConnectivity(forceReconnect: true);
+      notifyListeners();
+    } catch (e) {
+      _error =
+          _currentLanguage == 'en'
+              ? 'Failed to reload SOAP configuration'
+              : 'Error al recargar configuración SOAP';
+      notifyListeners();
+    }
   }
 }

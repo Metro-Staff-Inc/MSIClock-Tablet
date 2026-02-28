@@ -43,6 +43,7 @@ dependencies:
   battery_plus: ^4.0.0 # For accessing battery information
   network_info_plus: ^4.0.0 # For getting device MAC address
   screen_brightness: ^1.0.0 # For controlling screen brightness
+  crypto: ^3.0.3 # For HMAC-SHA256 signing (R2 uploads)
 
 dev_dependencies:
   flutter_test:
