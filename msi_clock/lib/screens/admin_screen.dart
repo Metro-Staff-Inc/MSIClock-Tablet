@@ -13,6 +13,9 @@ import '../providers/punch_provider.dart';
 import '../services/power_saving_manager.dart';
 import '../services/logger_service.dart';
 import '../services/log_upload_service.dart';
+import '../services/punch_sync_service.dart';
+import '../services/punch_export_service.dart';
+import '../services/punch_database_service.dart';
 
 // Method channel for device information
 const platform = MethodChannel('com.example.msi_clock/device_info');
@@ -68,6 +71,14 @@ class _AdminScreenState extends State<AdminScreen> {
   final LogUploadService _logUploadService = LogUploadService();
   String _logLevel = 'normal';
   bool _uploadingLogs = false;
+  // Punch database settings
+  final PunchSyncService _punchSyncService = PunchSyncService();
+  final PunchExportService _punchExportService = PunchExportService();
+  final PunchDatabaseService _punchDatabaseService = PunchDatabaseService();
+  final _punchRetentionDaysController = TextEditingController();
+  bool _syncingPunches = false;
+  bool _exportingPunches = false;
+  Map<String, int>? _punchStats;
   @override
   void initState() {
     super.initState();
@@ -77,6 +88,7 @@ class _AdminScreenState extends State<AdminScreen> {
     _loadMacAddress();
     _loadPowerSavingSettings();
     _loadLoggingSettings();
+    _loadPunchDatabaseSettings();
   }
 
   /// Load the current app version
@@ -302,6 +314,160 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  /// Load punch database settings
+  Future<void> _loadPunchDatabaseSettings() async {
+    try {
+      final retentionDays = await _settings.getPunchRetentionDays();
+      final stats = await _punchDatabaseService.getStatistics();
+      setState(() {
+        _punchRetentionDaysController.text = retentionDays.toString();
+        _punchStats = stats;
+      });
+    } catch (e) {
+      setState(() {
+        _punchRetentionDaysController.text = '30';
+        _punchStats = {'total': 0, 'synced': 0, 'unsynced': 0};
+      });
+    }
+  }
+
+  /// Manually sync unsynced punches
+  Future<void> _syncPunches() async {
+    setState(() {
+      _syncingPunches = true;
+    });
+    try {
+      final result = await _punchSyncService.manualSync();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Sync completed: ${result['succeeded']} succeeded, ${result['failed']} failed',
+            ),
+            backgroundColor:
+                result['failed'] == 0 ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+      // Reload stats
+      await _loadPunchDatabaseSettings();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error syncing punches: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _syncingPunches = false;
+      });
+    }
+  }
+
+  /// Export and upload punch database
+  Future<void> _exportPunchDatabase() async {
+    setState(() {
+      _exportingPunches = true;
+    });
+    try {
+      final result = await _punchExportService.exportAndUpload();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result['success']
+                  ? 'Exported: ${result['txtFileName']} and ${result['csvFileName']}'
+                  : 'Failed to export punch database. Check R2 configuration.',
+            ),
+            backgroundColor: result['success'] ? Colors.green : Colors.red,
+          ),
+        );
+      }
+      // Reload stats after export
+      await _loadPunchDatabaseSettings();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting punch database: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _exportingPunches = false;
+      });
+    }
+  }
+
+  /// Clear all punches from database
+  Future<void> _clearPunchDatabase() async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: AppTheme.frontFrames,
+            title: Text(
+              'Clear Database?',
+              style: TextStyle(color: AppTheme.defaultText),
+            ),
+            content: Text(
+              'This will permanently delete ALL punch records from the database. This action cannot be undone.\n\nAre you sure?',
+              style: TextStyle(color: AppTheme.defaultText),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(color: AppTheme.defaultText),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.red.withOpacity(0.2),
+                ),
+                child: const Text(
+                  'Clear Database',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final deletedCount = await _punchDatabaseService.clearAllPunches();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Database cleared: $deletedCount records deleted'),
+            backgroundColor: AppTheme.mainGreen,
+          ),
+        );
+      }
+      // Reload stats
+      await _loadPunchDatabaseSettings();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error clearing database: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   /// Manually push battery data to the API
   Future<void> _pushBatteryData() async {
     setState(() {
@@ -415,6 +581,10 @@ class _AdminScreenState extends State<AdminScreen> {
       await _loggerService.setLogLevel(
         _logLevel == 'debug' ? LogLevel.debug : LogLevel.normal,
       );
+      // Update punch retention days
+      final retentionDays =
+          int.tryParse(_punchRetentionDaysController.text) ?? 30;
+      await _settings.updatePunchRetentionDays(retentionDays);
       // Update admin password if provided
       if (_newAdminPasswordController.text.isNotEmpty) {
         // Validate that passwords match
@@ -1169,6 +1339,225 @@ class _AdminScreenState extends State<AdminScreen> {
                                   horizontal: 16,
                                   vertical: 12,
                                 ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      // Punch Database Settings Section
+                      Text(
+                        'Punch Database',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: AppTheme.defaultText,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.frontFrames,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Database Statistics',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (_punchStats != null) ...[
+                              Text(
+                                '• Total Punches: ${_punchStats!['total']}\n'
+                                '• Synced: ${_punchStats!['synced']}\n'
+                                '• Unsynced: ${_punchStats!['unsynced']}',
+                                style: TextStyle(
+                                  color: AppTheme.defaultText.withOpacity(0.8),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ] else ...[
+                              Text(
+                                'Loading statistics...',
+                                style: TextStyle(
+                                  color: AppTheme.defaultText.withOpacity(0.8),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            Divider(
+                              color: AppTheme.defaultText.withOpacity(0.3),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Data Retention',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _punchRetentionDaysController,
+                              decoration: InputDecoration(
+                                labelText: 'Keep Punches For (Days)',
+                                labelStyle: TextStyle(
+                                  color: AppTheme.defaultText.withOpacity(0.7),
+                                ),
+                                hintText: '30',
+                                hintStyle: TextStyle(
+                                  color: AppTheme.defaultText.withOpacity(0.5),
+                                ),
+                                filled: true,
+                                fillColor: AppTheme.windowBackground,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                              style: TextStyle(color: AppTheme.defaultText),
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter retention days';
+                                }
+                                final days = int.tryParse(value);
+                                if (days == null || days < 1) {
+                                  return 'Must be at least 1 day';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '• Punches older than this will be automatically deleted\n'
+                              '• All punches are stored locally first\n'
+                              '• Unsynced punches retry automatically every 5 minutes',
+                              style: TextStyle(
+                                color: AppTheme.defaultText.withOpacity(0.7),
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Divider(
+                              color: AppTheme.defaultText.withOpacity(0.3),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Database Management',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    icon:
+                                        _syncingPunches
+                                            ? SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(Colors.white),
+                                              ),
+                                            )
+                                            : const Icon(Icons.sync, size: 20),
+                                    label: Text(
+                                      _syncingPunches
+                                          ? 'Syncing...'
+                                          : 'Sync Now',
+                                    ),
+                                    onPressed:
+                                        _syncingPunches ? null : _syncPunches,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppTheme.mainGreen,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    icon:
+                                        _exportingPunches
+                                            ? SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(Colors.white),
+                                              ),
+                                            )
+                                            : const Icon(
+                                              Icons.upload_file,
+                                              size: 20,
+                                            ),
+                                    label: Text(
+                                      _exportingPunches
+                                          ? 'Exporting...'
+                                          : 'Export to R2',
+                                    ),
+                                    onPressed:
+                                        _exportingPunches
+                                            ? null
+                                            : _exportPunchDatabase,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppTheme.mainGreen,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            // Clear Database Button
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.delete_forever, size: 20),
+                              label: const Text('Clear Database'),
+                              onPressed: _clearPunchDatabase,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '⚠️ Warning: This will permanently delete all punch records',
+                              style: TextStyle(
+                                color: Colors.red.withOpacity(0.8),
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
                               ),
                             ),
                           ],

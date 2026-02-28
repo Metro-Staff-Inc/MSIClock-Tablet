@@ -14,6 +14,7 @@ import 'services/battery_monitor_service.dart';
 import 'services/power_saving_manager.dart';
 import 'services/logger_service.dart';
 import 'services/log_upload_service.dart';
+import 'services/punch_sync_service.dart';
 
 // Method channel for native communication
 const platform = MethodChannel('com.example.msi_clock/kiosk');
@@ -40,6 +41,10 @@ void main() async {
   // Initialize log upload service
   final logUploadService = LogUploadService();
   await logUploadService.initialize();
+  // Initialize punch sync service
+  final punchSyncService = PunchSyncService();
+  await punchSyncService.initialize();
+  await loggerService.logInfo('Punch sync service initialized');
   // Initialize automatic update scheduler
   final updateService = UpdateService();
   await updateService.scheduleUpdateCheck();

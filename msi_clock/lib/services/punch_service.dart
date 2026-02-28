@@ -4,10 +4,12 @@ import '../models/punch.dart';
 import '../models/soap_config.dart';
 import 'soap_service.dart';
 import 'logger_service.dart';
+import 'punch_database_service.dart';
 
 class PunchService {
   final SoapService _soapService;
   final LoggerService _logger = LoggerService();
+  final PunchDatabaseService _database = PunchDatabaseService();
   CameraController? _cameraController;
   bool _isInitialized = false;
   PunchService(SoapConfig config) : _soapService = SoapService(config);
@@ -113,21 +115,7 @@ class PunchService {
         'SOAP service completed in ${soapDuration.inMilliseconds}ms',
       );
 
-      // Check if the response contains an exception
-      if (response['exception'] != null && response['exception'] > 0) {
-        await _logger.logPunch(
-          'Punch failed for employee $employeeId: Exception ${response['exception']}',
-        );
-        final errorPunch = Punch.fromResponse(
-          employeeId,
-          timestamp,
-          response,
-          imageData: imageData,
-        );
-        return errorPunch;
-      }
-
-      // If no exception, create a normal punch object
+      // Create punch object from response
       final punch = Punch.fromResponse(
         employeeId,
         timestamp,
@@ -135,25 +123,54 @@ class PunchService {
         imageData: imageData,
       );
 
+      // Store punch in local database (regardless of sync status)
+      try {
+        await _database.insertPunch(punch);
+        await _logger.logDebug('Punch stored in local database');
+      } catch (e) {
+        await _logger.logError('Failed to store punch in database: $e');
+        // Continue even if database storage fails
+      }
+
       final punchServiceEndTime = DateTime.now();
       final punchServiceDuration = punchServiceEndTime.difference(
         punchServiceStartTime,
       );
 
-      await _logger.logPunch(
-        'Punch successful for employee $employeeId (${punch.punchType ?? "unknown"}) - Total time: ${punchServiceDuration.inMilliseconds}ms',
-      );
+      // Check if the response contains an exception
+      if (response['exception'] != null && response['exception'] > 0) {
+        await _logger.logPunch(
+          'Punch failed for employee $employeeId: Exception ${response['exception']}',
+        );
+      } else {
+        await _logger.logPunch(
+          'Punch successful for employee $employeeId (${punch.punchType ?? "unknown"}) - Total time: ${punchServiceDuration.inMilliseconds}ms',
+        );
+      }
 
       return punch;
     } catch (e) {
       await _logger.logError('Punch error for employee $employeeId: $e');
-      // Return offline punch in case of error
-      return Punch(
+
+      // Create offline punch in case of error
+      final offlinePunch = Punch(
         employeeId: employeeId,
         timestamp: timestamp,
         imageData: imageData,
         isSynced: false,
       );
+
+      // Store offline punch in local database for later sync
+      try {
+        await _database.insertPunch(offlinePunch);
+        await _logger.logDebug('Offline punch stored in local database');
+      } catch (dbError) {
+        await _logger.logError(
+          'Failed to store offline punch in database: $dbError',
+        );
+      }
+
+      return offlinePunch;
     }
   }
 

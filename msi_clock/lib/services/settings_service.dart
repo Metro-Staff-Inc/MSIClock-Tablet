@@ -26,6 +26,7 @@ class SettingsService {
       'accessKeyId': R2Credentials.accessKeyId,
       'secretAccessKey': R2Credentials.secretAccessKey,
     },
+    'punchRetentionDays': 30, // Default: keep punches for 30 days
   };
   // In-memory settings for testing or when file access fails
   Map<String, dynamic>? _inMemorySettings;
@@ -312,6 +313,19 @@ class SettingsService {
   Future<void> clearR2Config() async {
     final settings = await loadSettings();
     settings.remove('r2');
+    await saveSettings(settings);
+  }
+
+  /// Get punch retention period in days
+  Future<int> getPunchRetentionDays() async {
+    final settings = await loadSettings();
+    return settings['punchRetentionDays'] as int? ?? 30;
+  }
+
+  /// Update punch retention period
+  Future<void> updatePunchRetentionDays(int days) async {
+    final settings = await loadSettings();
+    settings['punchRetentionDays'] = days;
     await saveSettings(settings);
   }
 }
