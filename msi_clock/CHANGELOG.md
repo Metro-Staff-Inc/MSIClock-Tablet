@@ -5,6 +5,18 @@ All notable changes to the MSI Clock application will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2026-03-02
+
+### Fixed
+
+- **CRITICAL:** Fixed how settings were handling the R2 Credentials for Log Upload
+
+## [1.0.8] - 2026-02-28
+
+### Fixed
+
+- Added an update to allow for updating inside of the app
+
 ## [1.0.7] - 2026-02-28
 
 ### Fixed

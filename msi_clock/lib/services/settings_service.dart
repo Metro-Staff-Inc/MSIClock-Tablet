@@ -49,7 +49,17 @@ class SettingsService {
         }
         // Read the file
         final contents = await file.readAsString();
-        return json.decode(contents) as Map<String, dynamic>;
+        final loadedSettings = json.decode(contents) as Map<String, dynamic>;
+
+        // Merge with defaults to ensure all new settings are present
+        final migratedSettings = _mergeWithDefaults(loadedSettings);
+
+        // If settings were migrated (new keys added), save them
+        if (!_areSettingsEqual(loadedSettings, migratedSettings)) {
+          await saveSettings(migratedSettings);
+        }
+
+        return migratedSettings;
       } catch (e) {
         // If file access fails, use in-memory settings
         _inMemorySettings = Map<String, dynamic>.from(_defaultSettings);
@@ -59,6 +69,76 @@ class SettingsService {
       // Return default settings if there's an error
       return _defaultSettings;
     }
+  }
+
+  /// Merge loaded settings with defaults to add any missing keys
+  Map<String, dynamic> _mergeWithDefaults(Map<String, dynamic> loaded) {
+    final merged = Map<String, dynamic>.from(loaded);
+
+    // Recursively merge each top-level key from defaults
+    _defaultSettings.forEach((key, defaultValue) {
+      if (!merged.containsKey(key)) {
+        // Key doesn't exist, add it from defaults
+        merged[key] = defaultValue;
+      } else if (defaultValue is Map<String, dynamic> &&
+          merged[key] is Map<String, dynamic>) {
+        // Both are maps, merge them recursively
+        merged[key] = _mergeMaps(
+          merged[key] as Map<String, dynamic>,
+          defaultValue,
+        );
+      }
+      // If key exists and is not a map, keep the loaded value
+    });
+
+    return merged;
+  }
+
+  /// Recursively merge two maps, adding missing keys from defaults
+  Map<String, dynamic> _mergeMaps(
+    Map<String, dynamic> loaded,
+    Map<String, dynamic> defaults,
+  ) {
+    final merged = Map<String, dynamic>.from(loaded);
+
+    defaults.forEach((key, defaultValue) {
+      if (!merged.containsKey(key)) {
+        merged[key] = defaultValue;
+      } else if (defaultValue is Map<String, dynamic> &&
+          merged[key] is Map<String, dynamic>) {
+        merged[key] = _mergeMaps(
+          merged[key] as Map<String, dynamic>,
+          defaultValue,
+        );
+      }
+    });
+
+    return merged;
+  }
+
+  /// Check if two settings maps are equal (for migration detection)
+  bool _areSettingsEqual(Map<String, dynamic> a, Map<String, dynamic> b) {
+    if (a.length != b.length) return false;
+
+    for (final key in a.keys) {
+      if (!b.containsKey(key)) return false;
+
+      final aValue = a[key];
+      final bValue = b[key];
+
+      if (aValue is Map && bValue is Map) {
+        if (!_areSettingsEqual(
+          aValue as Map<String, dynamic>,
+          bValue as Map<String, dynamic>,
+        )) {
+          return false;
+        }
+      } else if (aValue != bValue) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   Future<void> saveSettings(Map<String, dynamic> settings) async {
