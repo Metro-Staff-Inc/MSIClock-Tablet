@@ -364,12 +364,33 @@ class SettingsService {
   }
 
   /// Get R2 configuration
-  Future<Map<String, dynamic>?> getR2Config() async {
+  /// Always returns R2 credentials, either from settings or from R2Credentials class
+  Future<Map<String, dynamic>> getR2Config() async {
     final settings = await loadSettings();
     if (settings.containsKey('r2') && settings['r2'] is Map<String, dynamic>) {
-      return settings['r2'] as Map<String, dynamic>;
+      final r2Settings = settings['r2'] as Map<String, dynamic>;
+      // Validate that all required fields are present and not empty
+      if (r2Settings['accountId'] != null &&
+          r2Settings['accountId'].toString().isNotEmpty &&
+          r2Settings['bucketName'] != null &&
+          r2Settings['bucketName'].toString().isNotEmpty &&
+          r2Settings['accessKeyId'] != null &&
+          r2Settings['accessKeyId'].toString().isNotEmpty &&
+          r2Settings['secretAccessKey'] != null &&
+          r2Settings['secretAccessKey'].toString().isNotEmpty) {
+        return r2Settings;
+      }
     }
-    return null;
+
+    // Fallback: Return credentials directly from R2Credentials class
+    // This ensures R2 always works even if settings are missing or invalid
+    // Trim all values to prevent signature errors from whitespace
+    return {
+      'accountId': R2Credentials.accountId.trim(),
+      'bucketName': R2Credentials.bucketName.trim(),
+      'accessKeyId': R2Credentials.accessKeyId.trim(),
+      'secretAccessKey': R2Credentials.secretAccessKey.trim(),
+    };
   }
 
   /// Update R2 configuration

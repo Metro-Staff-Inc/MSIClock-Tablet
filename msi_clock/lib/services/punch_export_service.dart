@@ -64,25 +64,33 @@ class PunchExportService {
         'Starting upload to Cloudflare R2: ${exportFile.path}',
       );
 
-      // Get R2 configuration
+      // Get R2 configuration (always returns valid credentials)
       final r2Config = await _settings.getR2Config();
-      if (r2Config == null) {
-        await _logger.logError('R2 configuration not found');
-        return false;
-      }
 
-      final accountId = r2Config['accountId'] as String;
-      final bucketName = r2Config['bucketName'] as String;
-      final accessKeyId = r2Config['accessKeyId'] as String;
-      final secretAccessKey = r2Config['secretAccessKey'] as String;
+      // Trim all credentials to remove any whitespace that could cause signature errors
+      final accountId = (r2Config['accountId'] as String).trim();
+      final bucketName = (r2Config['bucketName'] as String).trim();
+      final accessKeyId = (r2Config['accessKeyId'] as String).trim();
+      final secretAccessKey = (r2Config['secretAccessKey'] as String).trim();
+      
+      // Log credential info (not the actual secrets, just lengths for debugging)
+      await _logger.logInfo(
+        'R2 Config - AccountID length: ${accountId.length}, '
+        'Bucket: $bucketName, AccessKeyID length: ${accessKeyId.length}, '
+        'SecretKey length: ${secretAccessKey.length}',
+      );
 
       // Read file content
       final fileBytes = await exportFile.readAsBytes();
       final fileName = exportFile.path.split(Platform.pathSeparator).last;
+      
+      // URL encode the filename for proper AWS signature calculation
+      // Spaces and special characters must be encoded
+      final encodedFileName = Uri.encodeComponent(fileName);
 
-      // Construct the R2 endpoint URL
+      // Construct the R2 endpoint URL with encoded filename
       final endpoint =
-          'https://$accountId.r2.cloudflarestorage.com/$bucketName/$fileName';
+          'https://$accountId.r2.cloudflarestorage.com/$bucketName/$encodedFileName';
 
       // Get current date for AWS signature
       final now = DateTime.now().toUtc();
@@ -91,7 +99,8 @@ class PunchExportService {
 
       // Create canonical request
       final method = 'PUT';
-      final canonicalUri = '/$bucketName/$fileName';
+      // Canonical URI must use the encoded filename to match the actual request
+      final canonicalUri = '/$bucketName/$encodedFileName';
       final canonicalQueryString = '';
       final payloadHash = sha256.convert(fileBytes).toString();
 

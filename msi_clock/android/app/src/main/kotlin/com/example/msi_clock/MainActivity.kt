@@ -6,6 +6,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
@@ -18,25 +19,49 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        private const val TAG = "MSIClock_Kiosk"
+        // AnyDesk package names to whitelist
+        private val ANYDESK_PACKAGES = setOf(
+            "com.anydesk.adcontrol.ad1",
+            "com.anydesk.anydeskandroid.custom"
+        )
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        Log.d(TAG, "onCreate: Initializing kiosk mode")
+        
         // Keep screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        Log.d(TAG, "onCreate: Screen wake lock enabled")
         
         // Start lock task mode (kiosk mode)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             startLockTask()
+            Log.w(TAG, "onCreate: Lock task mode started - AnyDesk whitelisting active")
         }
     }
 
     override fun onResume() {
         super.onResume()
+        Log.d(TAG, "onResume: Activity resumed")
         hideSystemUI()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        Log.d(TAG, "onWindowFocusChanged: hasFocus=$hasFocus")
+        
+        if (!hasFocus) {
+            // Check if AnyDesk is running
+            if (isAnydeskRunning()) {
+                Log.i(TAG, "onWindowFocusChanged: AnyDesk detected - allowing focus loss")
+                return
+            }
+            Log.w(TAG, "onWindowFocusChanged: Lost focus to non-AnyDesk app")
+        }
+        
         if (hasFocus) {
             hideSystemUI()
         }
@@ -60,20 +85,55 @@ class MainActivity : FlutterActivity() {
         }
     }
     
+    // Check if AnyDesk is currently running
+    private fun isAnydeskRunning(): Boolean {
+        try {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val runningApps = activityManager.runningAppProcesses ?: return false
+            
+            for (processInfo in runningApps) {
+                if (ANYDESK_PACKAGES.any { processInfo.processName.contains(it) }) {
+                    Log.i(TAG, "isAnydeskRunning: AnyDesk process detected: ${processInfo.processName}")
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "isAnydeskRunning: Error checking for AnyDesk", e)
+        }
+        return false
+    }
+    
     // Prevent user from using hardware back button
     override fun onBackPressed() {
-        // Do nothing - prevents back button from working
+        Log.d(TAG, "onBackPressed: Back button pressed")
+        // Allow back button if AnyDesk is running
+        if (isAnydeskRunning()) {
+            Log.i(TAG, "onBackPressed: AnyDesk running - allowing back button")
+            super.onBackPressed()
+            return
+        }
+        // Otherwise block it
+        Log.d(TAG, "onBackPressed: Blocked (no AnyDesk)")
     }
     
     // Prevent system keys like volume, power, etc.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Allow all keys if AnyDesk is running
+        if (isAnydeskRunning()) {
+            Log.d(TAG, "dispatchKeyEvent: AnyDesk running - allowing key ${event.keyCode}")
+            return super.dispatchKeyEvent(event)
+        }
+        
         // Handle volume buttons, power button, etc.
         return when (event.keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP,
             KeyEvent.KEYCODE_VOLUME_DOWN,
             KeyEvent.KEYCODE_POWER,
             KeyEvent.KEYCODE_HOME,
-            KeyEvent.KEYCODE_BACK -> true // Consume the event, prevent default behavior
+            KeyEvent.KEYCODE_BACK -> {
+                Log.d(TAG, "dispatchKeyEvent: Blocked key ${event.keyCode}")
+                true // Consume the event, prevent default behavior
+            }
             else -> super.dispatchKeyEvent(event) // Let other keys behave normally
         }
     }
