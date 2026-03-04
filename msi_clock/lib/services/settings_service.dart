@@ -16,7 +16,8 @@ class SettingsService {
     },
     'cameraSettings': {'isEnabled': true, 'selectedImagePath': null},
     'battery': {
-      'apiEndpoint': 'https://battery-monitor-api.onrender.com',
+      'apiEndpoint': 'https://admin.msistaff.com',
+      'apiToken': 'a49755e6-4445-4731-b349-60fd1e41b88f',
       'deviceName': 'MSI-Tablet',
       'location': 'Unknown',
     },
@@ -291,7 +292,18 @@ class SettingsService {
         settings['battery']['apiEndpoint'] is String) {
       return settings['battery']['apiEndpoint'] as String;
     }
-    return 'https://battery-monitor-api.onrender.com';
+    return 'https://admin.msistaff.com';
+  }
+
+  /// Get battery API token
+  Future<String> getBatteryApiToken() async {
+    final settings = await loadSettings();
+    if (settings.containsKey('battery') &&
+        settings['battery'] is Map<String, dynamic> &&
+        settings['battery']['apiToken'] is String) {
+      return settings['battery']['apiToken'] as String;
+    }
+    return 'a49755e6-4445-4731-b349-60fd1e41b88f';
   }
 
   /// Get device name
@@ -319,6 +331,7 @@ class SettingsService {
   /// Update battery settings
   Future<void> updateBatterySettings({
     String? apiEndpoint,
+    String? apiToken,
     String? deviceName,
     String? location,
   }) async {
@@ -331,13 +344,17 @@ class SettingsService {
               settings['battery'] as Map<String, dynamic>,
             )
             : <String, dynamic>{
-              'apiEndpoint': 'https://battery-monitor-api.onrender.com',
+              'apiEndpoint': 'https://admin.msistaff.com',
+              'apiToken': 'a49755e6-4445-4731-b349-60fd1e41b88f',
               'deviceName': 'MSI-Tablet',
               'location': 'Unknown',
             };
     // Update settings if provided
     if (apiEndpoint != null) {
       batterySettings['apiEndpoint'] = apiEndpoint;
+    }
+    if (apiToken != null) {
+      batterySettings['apiToken'] = apiToken;
     }
     if (deviceName != null) {
       batterySettings['deviceName'] = deviceName;

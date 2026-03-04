@@ -5,6 +5,37 @@ All notable changes to the MSI Clock application will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.11] - 2026-03-04
+
+### Changed
+
+- **BREAKING:** Migrated to new unified telemetry API at `https://admin.msistaff.com/api/telemetry`
+- **BREAKING:** Telemetry now requires Bearer token authentication
+- **BREAKING:** Storage values now sent in bytes instead of GB
+- **BREAKING:** MAC address is now required for telemetry
+- **BREAKING:** Client-side timestamp (UTC) now required for telemetry
+- Updated telemetry API endpoint from `/checkin` to `/api/telemetry`
+- Increased API timeout from 10s to 30s for better reliability
+- Enhanced error handling with specific responses for 401, 400, and 5xx errors
+- Improved logging throughout telemetry lifecycle
+
+### Added
+
+- Bearer token authentication for telemetry API
+- API token configuration field in Admin Settings (obscured)
+- MAC address validation before sending telemetry
+- Timestamp generation in UTC for each telemetry report
+- Enhanced error messages for authentication and validation failures
+- Device ID logging from successful API responses
+- Comprehensive migration documentation in `docs/telemetry_api_migration_summary.md`
+- Migration plan in `plans/telemetry_api_migration_plan.md`
+
+### Fixed
+
+- Storage metrics now correctly converted from MB to bytes for API
+- MAC address now properly validated before telemetry submission
+- Error handling now distinguishes between retryable and non-retryable errors
+
 ## [1.0.10] - 2026-03-03
 
 ### Fixed

@@ -40,6 +40,7 @@ class _AdminScreenState extends State<AdminScreen> {
   final _locationController = TextEditingController();
   final _macAddressController = TextEditingController();
   final _batteryApiEndpointController = TextEditingController();
+  final _batteryApiTokenController = TextEditingController();
   bool _isLoadingMacAddress = true;
   bool _isPushingBatteryData = false;
   bool _isLoading = true;
@@ -190,6 +191,7 @@ class _AdminScreenState extends State<AdminScreen> {
     _locationController.dispose();
     _macAddressController.dispose();
     _batteryApiEndpointController.dispose();
+    _batteryApiTokenController.dispose();
     _inactivityThresholdController.dispose();
     _heartbeatIntervalController.dispose();
     super.dispose();
@@ -524,13 +526,17 @@ class _AdminScreenState extends State<AdminScreen> {
             batterySettings['location'] as String? ?? 'Unknown';
         _batteryApiEndpointController.text =
             batterySettings['apiEndpoint'] as String? ??
-            'https://battery-monitor-api.onrender.com';
+            'https://admin.msistaff.com';
+        _batteryApiTokenController.text =
+            batterySettings['apiToken'] as String? ??
+            'a49755e6-4445-4731-b349-60fd1e41b88f';
       } else {
         // Default values
         _deviceNameController.text = 'MSI-Tablet';
         _locationController.text = 'Unknown';
-        _batteryApiEndpointController.text =
-            'https://battery-monitor-api.onrender.com';
+        _batteryApiEndpointController.text = 'https://admin.msistaff.com';
+        _batteryApiTokenController.text =
+            'a49755e6-4445-4731-b349-60fd1e41b88f';
       }
       setState(() {
         _usernameController.text = soapSettings['username'] as String;
@@ -563,9 +569,10 @@ class _AdminScreenState extends State<AdminScreen> {
         isEnabled: _isCameraEnabled,
         selectedImagePath: _selectedImagePath,
       );
-      // Update device information including battery API endpoint
+      // Update device information including battery API endpoint and token
       await _settings.updateBatterySettings(
         apiEndpoint: _batteryApiEndpointController.text,
+        apiToken: _batteryApiTokenController.text,
         deviceName: _deviceNameController.text,
         location: _locationController.text,
       );
@@ -734,10 +741,21 @@ class _AdminScreenState extends State<AdminScreen> {
                       TextFormField(
                         controller: _batteryApiEndpointController,
                         decoration: InputDecoration(
-                          labelText: 'Battery API Endpoint',
+                          labelText: 'Telemetry API Endpoint',
                           labelStyle: TextStyle(color: AppTheme.defaultText),
-                          hintText: 'https://battery-monitor-api.onrender.com',
+                          hintText: 'https://admin.msistaff.com',
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Battery API Token
+                      TextFormField(
+                        controller: _batteryApiTokenController,
+                        decoration: InputDecoration(
+                          labelText: 'Telemetry API Token',
+                          labelStyle: TextStyle(color: AppTheme.defaultText),
+                          hintText: 'a49755e6-4445-4731-b349-60fd1e41b88f',
+                        ),
+                        obscureText: true,
                       ),
                       const SizedBox(height: 16),
                       // Push Battery Data Button

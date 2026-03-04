@@ -21,28 +21,40 @@ void main() {
     });
 
     test('BatteryCheckIn model serialization', () {
-      // Create a battery check-in
+      // Create a battery check-in with new required fields
+      final reportedAt = DateTime.now().toUtc();
       final checkIn = BatteryCheckIn(
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        reportedAt: reportedAt,
         deviceName: 'Test-Device',
         location: 'Test-Location',
         batteryPct: 75,
+        freeSpace: 5000000000, // 5GB in bytes
+        totalSpace: 16000000000, // 16GB in bytes
       );
 
       // Convert to JSON
       final json = checkIn.toJson();
 
       // Verify JSON structure
+      expect(json['mac_address'], equals('AA:BB:CC:DD:EE:FF'));
       expect(json['device_name'], equals('Test-Device'));
       expect(json['location'], equals('Test-Location'));
       expect(json['battery_pct'], equals(75));
+      expect(json['free_space'], equals(5000000000));
+      expect(json['total_space'], equals(16000000000));
+      expect(json['reported_at'], isNotNull);
 
       // Convert back from JSON
       final fromJson = BatteryCheckIn.fromJson(json);
 
       // Verify deserialization
+      expect(fromJson.macAddress, equals('AA:BB:CC:DD:EE:FF'));
       expect(fromJson.deviceName, equals('Test-Device'));
       expect(fromJson.location, equals('Test-Location'));
       expect(fromJson.batteryPct, equals(75));
+      expect(fromJson.freeSpace, equals(5000000000));
+      expect(fromJson.totalSpace, equals(16000000000));
     });
 
     test('Battery API service sends data correctly', () async {
@@ -67,8 +79,10 @@ void main() {
       // Note: This would require modifying the BatteryApiService to accept a client in the constructor
       // or have a method to set the client for testing
 
-      // Create a check-in
+      // Create a check-in with new required fields
       final checkIn = BatteryCheckIn(
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        reportedAt: DateTime.now().toUtc(),
         deviceName: 'Test-Device',
         location: 'Test-Location',
         batteryPct: 80,

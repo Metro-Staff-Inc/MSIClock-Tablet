@@ -1,68 +1,93 @@
 import 'dart:convert';
 
-/// Model class representing a battery check-in to be sent to the API
+/// Model class representing a telemetry check-in to be sent to the API
+/// Updated to match the new telemetry API specification
 class BatteryCheckIn {
+  /// The MAC address of the device (format: XX:XX:XX:XX:XX:XX) - REQUIRED
+  final String macAddress;
+
   /// The name of the device (tablet)
-  final String deviceName;
+  final String? deviceName;
 
   /// The location where the tablet is installed
-  final String location;
+  final String? location;
+
+  /// Timestamp when telemetry was collected (UTC) - REQUIRED
+  final DateTime reportedAt;
 
   /// The battery percentage (0-100)
-  final int batteryPct;
+  final int? batteryPct;
 
-  /// The MAC address of the device (format: XX:XX:XX:XX:XX:XX)
-  final String? macAddress;
+  /// Free storage space in bytes
+  final int? freeSpace;
 
-  /// Free storage space in GB
-  final double? freeSpaceGB;
-
-  /// Total storage space in GB
-  final double? totalSpaceGB;
-
-  /// Free storage space percentage (0-100)
-  final int? freeSpacePct;
+  /// Total storage space in bytes
+  final int? totalSpace;
 
   /// App version (e.g., "1.0.5+6")
   final String? appVersion;
 
   /// Creates a new BatteryCheckIn instance
   BatteryCheckIn({
-    required this.deviceName,
-    required this.location,
-    required this.batteryPct,
-    this.macAddress,
-    this.freeSpaceGB,
-    this.totalSpaceGB,
-    this.freeSpacePct,
+    required this.macAddress,
+    required this.reportedAt,
+    this.deviceName,
+    this.location,
+    this.batteryPct,
+    this.freeSpace,
+    this.totalSpace,
     this.appVersion,
-  });
+  }) {
+    // Validate MAC address format
+    if (!isValidMacAddress(macAddress)) {
+      throw ArgumentError('Invalid MAC address format: $macAddress');
+    }
+    // Validate battery percentage
+    if (batteryPct != null && (batteryPct! < 0 || batteryPct! > 100)) {
+      throw ArgumentError('Battery percentage must be between 0 and 100');
+    }
+    // Validate storage values
+    if (freeSpace != null && freeSpace! < 0) {
+      throw ArgumentError('Free space must be positive');
+    }
+    if (totalSpace != null && totalSpace! < 0) {
+      throw ArgumentError('Total space must be positive');
+    }
+  }
 
-  /// Converts the BatteryCheckIn to a JSON map
+  /// Validates MAC address format (XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX)
+  static bool isValidMacAddress(String mac) {
+    final regex = RegExp(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$');
+    return regex.hasMatch(mac);
+  }
+
+  /// Converts the BatteryCheckIn to a JSON map matching the new API schema
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> json = {
-      'device_name': deviceName,
-      'location': location,
-      'battery_pct': batteryPct,
+      'mac_address': macAddress,
+      'reported_at': reportedAt.toUtc().toIso8601String(),
     };
-    // Only include MAC address if it's not null
-    if (macAddress != null) {
-      json['mac_address'] = macAddress!;
+
+    // Include optional fields if available
+    if (deviceName != null && deviceName!.isNotEmpty) {
+      json['device_name'] = deviceName!;
     }
-    // Include storage metrics if available
-    if (freeSpaceGB != null) {
-      json['free_space_gb'] = freeSpaceGB!;
+    if (location != null && location!.isNotEmpty) {
+      json['location'] = location!;
     }
-    if (totalSpaceGB != null) {
-      json['total_space_gb'] = totalSpaceGB!;
+    if (batteryPct != null) {
+      json['battery_pct'] = batteryPct!;
     }
-    if (freeSpacePct != null) {
-      json['free_space_pct'] = freeSpacePct!;
+    if (freeSpace != null) {
+      json['free_space'] = freeSpace!;
     }
-    // Include app version if available
-    if (appVersion != null) {
+    if (totalSpace != null) {
+      json['total_space'] = totalSpace!;
+    }
+    if (appVersion != null && appVersion!.isNotEmpty) {
       json['app_version'] = appVersion!;
     }
+
     return json;
   }
 
@@ -72,22 +97,37 @@ class BatteryCheckIn {
   /// Creates a BatteryCheckIn from a JSON map
   factory BatteryCheckIn.fromJson(Map<String, dynamic> json) {
     return BatteryCheckIn(
-      deviceName: json['device_name'] as String,
-      location: json['location'] as String,
-      batteryPct: json['battery_pct'] as int,
-      macAddress: json['mac_address'] as String?,
-      freeSpaceGB: json['free_space_gb'] as double?,
-      totalSpaceGB: json['total_space_gb'] as double?,
-      freeSpacePct: json['free_space_pct'] as int?,
+      macAddress: json['mac_address'] as String,
+      reportedAt: DateTime.parse(json['reported_at'] as String),
+      deviceName: json['device_name'] as String?,
+      location: json['location'] as String?,
+      batteryPct: json['battery_pct'] as int?,
+      freeSpace: json['free_space'] as int?,
+      totalSpace: json['total_space'] as int?,
       appVersion: json['app_version'] as String?,
     );
   }
+
   @override
-  String toString() =>
-      'BatteryCheckIn(deviceName: $deviceName, location: $location, '
-      'batteryPct: $batteryPct, macAddress: $macAddress, '
-      'freeSpace: ${freeSpaceGB != null ? '${freeSpaceGB!.toStringAsFixed(2)} GB' : 'N/A'} / '
-      '${totalSpaceGB != null ? '${totalSpaceGB!.toStringAsFixed(2)} GB' : 'N/A'}, '
-      'freeSpacePct: ${freeSpacePct ?? 'N/A'}%, '
-      'appVersion: ${appVersion ?? 'N/A'})';
+  String toString() {
+    final freeSpaceGB =
+        freeSpace != null
+            ? (freeSpace! / (1024 * 1024 * 1024)).toStringAsFixed(2)
+            : 'N/A';
+    final totalSpaceGB =
+        totalSpace != null
+            ? (totalSpace! / (1024 * 1024 * 1024)).toStringAsFixed(2)
+            : 'N/A';
+    final freeSpacePct =
+        (freeSpace != null && totalSpace != null && totalSpace! > 0)
+            ? ((freeSpace! / totalSpace!) * 100).toStringAsFixed(1)
+            : 'N/A';
+
+    return 'BatteryCheckIn(macAddress: $macAddress, '
+        'deviceName: ${deviceName ?? 'N/A'}, location: ${location ?? 'N/A'}, '
+        'reportedAt: ${reportedAt.toIso8601String()}, '
+        'batteryPct: ${batteryPct ?? 'N/A'}%, '
+        'freeSpace: ${freeSpaceGB}GB / ${totalSpaceGB}GB ($freeSpacePct% free), '
+        'appVersion: ${appVersion ?? 'N/A'})';
+  }
 }

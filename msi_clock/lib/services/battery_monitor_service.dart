@@ -76,40 +76,59 @@ class BatteryMonitorService {
       final batteryPct = await _getBatteryLevel();
       // Get MAC address
       final macAddress = await _getMacAddress();
+
+      // Validate MAC address is available (required field)
+      if (macAddress == null || macAddress.isEmpty) {
+        await _logger.logError(
+          'Cannot send telemetry: MAC address is not available',
+        );
+        // Schedule a retry in 5 minutes
+        Timer(const Duration(minutes: 5), _reportBatteryLevel);
+        return;
+      }
+
       // Get storage metrics
       final storageMetrics = await _getStorageMetrics();
       // Get app version
       final appVersion = await _getAppVersion();
-      // Create check-in data
+      // Generate timestamp in UTC
+      final reportedAt = DateTime.now().toUtc();
+
+      // Create check-in data with new schema
       final checkIn = BatteryCheckIn(
+        macAddress: macAddress,
+        reportedAt: reportedAt,
         deviceName: deviceName,
         location: location,
         batteryPct: batteryPct,
-        macAddress: macAddress,
-        freeSpaceGB: storageMetrics['freeSpaceGB'],
-        totalSpaceGB: storageMetrics['totalSpaceGB'],
-        freeSpacePct: storageMetrics['freeSpacePct'],
+        freeSpace: storageMetrics['freeSpaceBytes'],
+        totalSpace: storageMetrics['totalSpaceBytes'],
         appVersion: appVersion,
       );
+
       // Log the check-in for monitoring
       final freeGB = storageMetrics['freeSpaceGB'];
       final totalGB = storageMetrics['totalSpaceGB'];
       final freePct = storageMetrics['freeSpacePct'];
 
       await _logger.logInfo(
-        'Battery check-in: Battery=$batteryPct%, '
+        'Telemetry check-in: Battery=$batteryPct%, '
         'Free Storage=${freeGB != null ? freeGB.toStringAsFixed(2) : 'N/A'}GB / '
         '${totalGB != null ? totalGB.toStringAsFixed(2) : 'N/A'}GB '
-        '(${freePct ?? 'N/A'}% free)',
+        '(${freePct ?? 'N/A'}% free), '
+        'MAC=$macAddress',
       );
       // Send to API
       final success = await _apiService.sendBatteryCheckIn(checkIn);
       if (success) {
+        await _logger.logInfo('Telemetry sent successfully');
       } else {
+        await _logger.logWarning('Telemetry send failed, will retry');
         // Schedule a retry in 5 minutes if the report fails
         Timer(const Duration(minutes: 5), _reportBatteryLevel);
       }
     } catch (e) {
+      await _logger.logError('Error reporting telemetry: $e');
       // Schedule a retry in 5 minutes if the report fails
       Timer(const Duration(minutes: 5), _reportBatteryLevel);
     } finally {
@@ -137,24 +156,38 @@ class BatteryMonitorService {
       final freeSpaceMB = await diskSpace.getFreeDiskSpace;
       final totalSpaceMB = await diskSpace.getTotalDiskSpace;
 
-      // Convert MB to GB (MB / 1024)
+      // Convert MB to bytes (for API) and GB (for logging)
+      final freeSpaceBytes =
+          freeSpaceMB != null ? (freeSpaceMB * 1024 * 1024).toInt() : null;
+      final totalSpaceBytes =
+          totalSpaceMB != null ? (totalSpaceMB * 1024 * 1024).toInt() : null;
+
+      // Convert MB to GB for logging (MB / 1024)
       final freeSpaceGB = freeSpaceMB != null ? (freeSpaceMB / 1024) : null;
       final totalSpaceGB = totalSpaceMB != null ? (totalSpaceMB / 1024) : null;
 
-      // Calculate percentage
+      // Calculate percentage for logging
       final freeSpacePct =
           (freeSpaceGB != null && totalSpaceGB != null && totalSpaceGB > 0)
               ? ((freeSpaceGB / totalSpaceGB) * 100).round()
               : null;
 
       return {
+        'freeSpaceBytes': freeSpaceBytes,
+        'totalSpaceBytes': totalSpaceBytes,
         'freeSpaceGB': freeSpaceGB,
         'totalSpaceGB': totalSpaceGB,
         'freeSpacePct': freeSpacePct,
       };
     } catch (e) {
       await _logger.logError('Failed to get storage metrics: $e');
-      return {'freeSpaceGB': null, 'totalSpaceGB': null, 'freeSpacePct': null};
+      return {
+        'freeSpaceBytes': null,
+        'totalSpaceBytes': null,
+        'freeSpaceGB': null,
+        'totalSpaceGB': null,
+        'freeSpacePct': null,
+      };
     }
   }
 
