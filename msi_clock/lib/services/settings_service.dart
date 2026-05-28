@@ -28,6 +28,7 @@ class SettingsService {
       'secretAccessKey': R2Credentials.secretAccessKey,
     },
     'punchRetentionDays': 30, // Default: keep punches for 30 days
+    'theme': {'presetId': 'msi', 'logoPath': null},
   };
   // In-memory settings for testing or when file access fails
   Map<String, dynamic>? _inMemorySettings;
@@ -444,6 +445,26 @@ class SettingsService {
   Future<void> updatePunchRetentionDays(int days) async {
     final settings = await loadSettings();
     settings['punchRetentionDays'] = days;
+    await saveSettings(settings);
+  }
+
+  /// Get theme configuration (preset id + optional custom logo path)
+  Future<Map<String, dynamic>> getThemeConfig() async {
+    final settings = await loadSettings();
+    if (settings.containsKey('theme') &&
+        settings['theme'] is Map<String, dynamic>) {
+      return settings['theme'] as Map<String, dynamic>;
+    }
+    return {'presetId': 'msi', 'logoPath': null};
+  }
+
+  /// Update theme configuration
+  Future<void> updateThemeConfig({
+    required String presetId,
+    String? logoPath,
+  }) async {
+    final settings = await loadSettings();
+    settings['theme'] = {'presetId': presetId, 'logoPath': logoPath};
     await saveSettings(settings);
   }
 }

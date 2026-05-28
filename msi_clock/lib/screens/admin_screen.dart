@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'dart:io';
 import '../config/app_config.dart';
 import '../config/app_theme.dart';
+import '../config/app_theme_data.dart';
+import '../providers/theme_provider.dart';
 import '../services/settings_service.dart';
 import '../services/update_service.dart';
 import '../services/battery_monitor_service.dart';
@@ -80,6 +82,10 @@ class _AdminScreenState extends State<AdminScreen> {
   bool _syncingPunches = false;
   bool _exportingPunches = false;
   Map<String, int>? _punchStats;
+  // Theme settings (pending — applied on Save)
+  String _selectedThemeId = defaultThemeId;
+  String? _selectedLogoPath;
+  File? _selectedLogoFile;
   @override
   void initState() {
     super.initState();
@@ -90,6 +96,45 @@ class _AdminScreenState extends State<AdminScreen> {
     _loadPowerSavingSettings();
     _loadLoggingSettings();
     _loadPunchDatabaseSettings();
+    _loadThemeSettings();
+  }
+
+  /// Load theme settings from ThemeProvider
+  void _loadThemeSettings() {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    setState(() {
+      _selectedThemeId = themeProvider.activeTheme.id;
+      _selectedLogoPath = themeProvider.customLogoPath;
+      _selectedLogoFile =
+          _selectedLogoPath != null && File(_selectedLogoPath!).existsSync()
+              ? File(_selectedLogoPath!)
+              : null;
+    });
+  }
+
+  /// Pick a logo image from gallery
+  Future<void> _pickLogo() async {
+    try {
+      final XFile? pickedFile = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+      );
+      if (pickedFile != null) {
+        setState(() {
+          _selectedLogoPath = pickedFile.path;
+          _selectedLogoFile = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      setState(() => _error = 'Failed to pick logo: $e');
+    }
+  }
+
+  /// Reset the logo to the theme preset's bundled default
+  void _resetLogo() {
+    setState(() {
+      _selectedLogoPath = null;
+      _selectedLogoFile = null;
+    });
   }
 
   /// Load the current app version
@@ -483,8 +528,8 @@ class _AdminScreenState extends State<AdminScreen> {
       // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Battery data sent successfully'),
+          SnackBar(
+            content: const Text('Battery data sent successfully'),
             backgroundColor: AppTheme.mainGreen,
           ),
         );
@@ -612,6 +657,15 @@ class _AdminScreenState extends State<AdminScreen> {
           _newAdminPasswordController.clear();
           _confirmAdminPasswordController.clear();
         });
+      }
+      // Update theme + logo
+      if (mounted) {
+        final themeProvider = Provider.of<ThemeProvider>(
+          context,
+          listen: false,
+        );
+        await themeProvider.setTheme(_selectedThemeId);
+        await themeProvider.setLogoPath(_selectedLogoPath);
       }
       // Update the PunchProvider with new settings
       if (mounted) {
@@ -1577,6 +1631,241 @@ class _AdminScreenState extends State<AdminScreen> {
                                 fontSize: 12,
                                 fontStyle: FontStyle.italic,
                               ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      // Theming Section
+                      Text(
+                        'Theming',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: AppTheme.defaultText,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.frontFrames,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Theme Preset',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            DropdownButtonFormField<String>(
+                              value: _selectedThemeId,
+                              dropdownColor: AppTheme.darkerFrames,
+                              style: TextStyle(color: AppTheme.defaultText),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: AppTheme.windowBackground,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                              items:
+                                  themePresets.values
+                                      .map(
+                                        (t) => DropdownMenuItem(
+                                          value: t.id,
+                                          child: Text(
+                                            t.displayName,
+                                            style: TextStyle(
+                                              color: AppTheme.defaultText,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _selectedThemeId = value;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Theme changes apply after saving settings.',
+                              style: TextStyle(
+                                color: AppTheme.defaultText.withOpacity(0.7),
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Divider(
+                              color: AppTheme.defaultText.withOpacity(0.3),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Custom Logo',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Optional override for the preset\'s default logo.',
+                              style: TextStyle(
+                                color: AppTheme.defaultText.withOpacity(0.7),
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.darkerFrames.withOpacity(
+                                        0.5,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: AppTheme.frontFrames,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      _selectedLogoPath != null
+                                          ? _selectedLogoPath!.split('/').last
+                                              .split('\\')
+                                              .last
+                                          : 'Using bundled default',
+                                      style: TextStyle(
+                                        color: AppTheme.defaultText,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.photo_library),
+                                  label: const Text('Browse'),
+                                  onPressed: _pickLogo,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.mainGreen,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                                if (_selectedLogoPath != null) ...[
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.refresh,
+                                      color: AppTheme.defaultText,
+                                    ),
+                                    tooltip: 'Reset to default',
+                                    onPressed: _resetLogo,
+                                  ),
+                                ],
+                              ],
+                            ),
+                            if (_selectedLogoFile != null) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                height: 120,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.darkerFrames,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: AppTheme.frontFrames,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.file(
+                                    _selectedLogoFile!,
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            Divider(
+                              color: AppTheme.defaultText.withOpacity(0.3),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Preview',
+                              style: TextStyle(
+                                color: AppTheme.defaultText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Builder(
+                              builder: (context) {
+                                final preview = themeForId(_selectedThemeId);
+                                final swatches = <(String, Color)>[
+                                  ('Background', preview.windowBackground),
+                                  ('Frames', preview.frontFrames),
+                                  ('Primary', preview.mainGreen),
+                                  ('Text', preview.defaultText),
+                                  ('Error', preview.errorColor),
+                                ];
+                                return Wrap(
+                                  spacing: 12,
+                                  runSpacing: 8,
+                                  children:
+                                      swatches
+                                          .map(
+                                            (s) => Column(
+                                              children: [
+                                                Container(
+                                                  width: 48,
+                                                  height: 48,
+                                                  decoration: BoxDecoration(
+                                                    color: s.$2,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                    border: Border.all(
+                                                      color: AppTheme
+                                                          .defaultText
+                                                          .withOpacity(0.2),
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  s.$1,
+                                                  style: TextStyle(
+                                                    color: AppTheme.defaultText
+                                                        .withOpacity(0.8),
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                          .toList(),
+                                );
+                              },
                             ),
                           ],
                         ),

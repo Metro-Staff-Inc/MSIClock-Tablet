@@ -7,6 +7,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'config/app_config.dart';
 import 'config/app_theme.dart';
 import 'providers/punch_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/admin_screen.dart';
 import 'widgets/admin_password_dialog.dart';
 import 'services/update_service.dart';
@@ -53,9 +54,14 @@ void main() async {
   await batteryMonitorService.initialize();
   // Initialize SOAP configuration
   final soapConfig = await AppConfig.getSoapConfig();
+  // Load theme before first frame so initial UI is correct.
+  final themeProvider = await ThemeProvider.load();
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => PunchProvider(soapConfig),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => PunchProvider(soapConfig)),
+        ChangeNotifierProvider.value(value: themeProvider),
+      ],
       child: const MSIClockApp(),
     ),
   );
@@ -65,8 +71,9 @@ class MSIClockApp extends StatelessWidget {
   const MSIClockApp({super.key});
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
     return MaterialApp(
-      title: 'MSI Clock',
+      title: themeProvider.activeTheme.appTitle,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const InitializationScreen(),
@@ -169,14 +176,14 @@ class _InitializationScreenState extends State<InitializationScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // MSI Logo
+              // Logo
               Padding(
                 padding: const EdgeInsets.all(32.0),
-                child: Image.asset('assets/images/msi_logo.png', height: 150),
+                child: context.watch<ThemeProvider>().buildLogo(height: 150),
               ),
               const SizedBox(height: 32),
               // Loading indicator
-              const CircularProgressIndicator(
+              CircularProgressIndicator(
                 color: AppTheme.mainGreen,
                 strokeWidth: 5,
               ),
@@ -186,7 +193,7 @@ class _InitializationScreenState extends State<InitializationScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 32.0),
                 child: Text(
                   _statusMessage,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 24,
                     color: AppTheme.defaultText,
                   ),
@@ -627,12 +634,11 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                     width: MediaQuery.of(context).size.width * 0.45,
                     child: Column(
                       children: [
-                        // MSI Logo
+                        // Logo
                         Padding(
                           padding: const EdgeInsets.all(16.0),
-                          child: Image.asset(
-                            'assets/images/msi_logo.png',
-                            height: 100, // Larger logo
+                          child: context.watch<ThemeProvider>().buildLogo(
+                            height: 100,
                           ),
                         ),
                         // Employee ID Input
@@ -804,7 +810,7 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: IconButton(
-                                  icon: const Icon(
+                                  icon: Icon(
                                     Icons.settings,
                                     color: AppTheme.defaultText,
                                   ),
@@ -1083,11 +1089,10 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
         ),
       );
     }
-    // Otherwise show MSI logo as default placeholder
+    // Otherwise show themed logo as default placeholder
     else {
       return Center(
-        child: Image.asset(
-          'assets/images/msi_logo.png',
+        child: context.watch<ThemeProvider>().buildLogo(
           height: containerHeight * 0.5,
           fit: BoxFit.contain,
         ),
